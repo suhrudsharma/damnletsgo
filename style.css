@@ -64,191 +64,159 @@ body { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, 
 .search-add-btn { font-size: 0.8rem; color: var(--primary); font-weight: bold; }
 
 /* --- DASHBOARD --- */
+/* ===== DASHBOARD (SMART, NON-INTRUSIVE) ===== */
+
 .dashboard-container {
     position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(100% - 24px);
+    max-width: 420px;
     background: var(--surface);
-    backdrop-filter: blur(10px);
+    backdrop-filter: blur(12px);
     z-index: 1000;
-    border-top-left-radius: 24px;
-    border-top-right-radius: 24px;
-    box-shadow: 0 -4px 25px rgba(0,0,0,0.1);
-    transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+    border-radius: 20px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.18);
     display: flex;
     flex-direction: column;
 }
 
-/* collapsed state handled via transform if needed, but we keep it open mostly */
 .dashboard-content {
-    padding: 0 20px 20px 20px;
-    overflow-y: auto;
-    max-height: 45vh; /* Reduced height to see map */
+    padding: 14px 16px 16px;
+    max-height: 260px;
+    overflow: hidden;
 }
 
-/* Desktop Floating Style */
 @media (min-width: 768px) {
     .dashboard-container {
-        bottom: 25px;
-        left: 25px;
-        right: auto;
-        width: 380px;
-        border-radius: 20px;
-        max-height: none;
-        background: rgba(255, 255, 255, 0.98);
+        left: 20px;
+        bottom: 20px;
+        transform: none;
+        width: 360px;
     }
-    .dashboard-content { max-height: 70vh; }
+}
+@media (min-width: 1024px) {
+    .dashboard-container {
+        opacity: 0.97;
+    }
 }
 
-.drag-handle {
-    height: 25px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    cursor: pointer;
-    flex-shrink: 0;
-}
-
-.handle-bar {
-    width: 40px;
-    height: 4px;
-    background: #e5e7eb;
-    border-radius: 10px;
-}
 
 .header-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 15px;
+    margin-bottom: 8px;
 }
 
-h1 { margin: 0; font-size: 1.25rem; color: var(--text); font-weight: 800; }
+h1 {
+    font-size: 1.1rem;
+    font-weight: 800;
+}
 
-/* Toggle */
-.toggle-wrapper { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: #6b7280; }
-.switch { position: relative; display: inline-block; width: 36px; height: 20px; }
-.switch input { opacity: 0; width: 0; height: 0; }
-.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #e5e7eb; transition: .4s; border-radius: 34px; }
-.slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px; background-color: white; transition: .4s; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
-input:checked + .slider { background-color: var(--primary); }
-input:checked + .slider:before { transform: translateX(16px); }
+.travel-modes {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-bottom: 8px;
+}
 
-/* Travel Modes */
-.travel-modes { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 15px; }
 .t-btn {
-    border: 1px solid transparent;
-    background: #f3f4f6;
-    padding: 10px 5px;
-    border-radius: 12px;
-    cursor: pointer;
-    color: #4b5563;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 5px;
-    transition: all 0.2s;
-}
-.t-btn i { font-size: 1.1rem; }
-.t-btn span { font-size: 0.7rem; font-weight: 600; }
-.t-btn.active { background: #eff6ff; color: var(--primary); border-color: #bfdbfe; }
-.t-btn:hover:not(.active) { background: #e5e7eb; }
-
-/* Buttons */
-.action-row { display: flex; gap: 10px; margin-bottom: 10px; }
-.btn {
-    flex: 1;
-    padding: 14px;
-    border: none;
-    border-radius: 12px;
-    font-weight: 600;
-    font-size: 0.95rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    transition: transform 0.1s;
-}
-.btn:active { transform: scale(0.98); }
-.btn-primary { background: var(--primary); color: white; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3); }
-.btn-secondary { background: white; color: var(--text); border: 1px solid #e5e7eb; }
-.btn-danger { background: #fee2e2; color: #ef4444; width: 100%; }
-
-.status-text { text-align: center; color: #6b7280; font-size: 0.85rem; margin-bottom: 10px; font-style: italic; }
-
-/* Results */
-.results-box {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    padding: 15px;
-    border-radius: 16px;
-    display: flex;
-    justify-content: space-around;
-    align-items: center;
-    position: relative;
-    margin-top: 5px;
-}
-.stat-item { text-align: center; }
-.stat-label { font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
-.stat-value { font-size: 1.2rem; font-weight: 800; color: var(--text); }
-.algo-badge {
-    position: absolute;
-    top: -8px;
-    background: #10b981;
-    color: white;
-    font-size: 0.6rem;
-    padding: 2px 8px;
+    padding: 8px 0;
     border-radius: 10px;
-    font-weight: bold;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
 }
+
+.t-btn span {
+    font-size: 0.65rem;
+}
+
+.action-row {
+    display: flex;
+    gap: 8px;
+}
+
+.btn {
+    padding: 12px;
+    font-size: 0.9rem;
+}
+.t-btn:active,
+.btn:active {
+    transform: scale(0.97);
+}
+
+
+.status-text {
+    font-size: 0.8rem;
+    margin: 6px 0;
+}
+
+.results-box {
+    margin-top: 8px;
+    padding: 12px;
+    border-radius: 14px;
+    background: #f8fafc;
+}
+
+/* Hide algorithm details from users */
+.algo-badge {
+    display: none;
+}
+
 
 /* Manual Controls */
+/* ===== MAP CONTROLS (LAPTOP FRIENDLY) ===== */
+
 .map-controls {
     position: absolute;
-    bottom: 240px; /* Above dashboard */
-    right: 15px;
-    z-index: 900;
+    right: 16px;
+    bottom: 90px;
+    z-index: 1200;
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
-    gap: 15px;
-    transition: bottom 0.3s;
-}
-@media (min-width: 768px) { .map-controls { bottom: 30px; } }
-
-.d-pad, .zoom-pad {
-    background: rgba(255, 255, 255, 0.95);
-    border-radius: 16px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
-    padding: 5px;
-    backdrop-filter: blur(4px);
+    gap: 12px;
 }
 
-.d-pad button, .zoom-pad button {
-    border: none;
-    background: transparent;
-    color: #4b5563;
-    cursor: pointer;
+@media (min-width: 768px) {
+    .map-controls {
+        bottom: 20px;
+        right: 20px;
+    }
+}
+
+.d-pad {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    font-size: 1.1rem;
+    width: 96px;
+    height: 96px;
+    position: relative;
 }
-.d-pad button:active, .zoom-pad button:active { color: var(--primary); }
 
-.d-pad { display: flex; flex-direction: column; align-items: center; width: 100px; height: 100px; justify-content: center; position: relative; }
-.d-up { position: absolute; top: 5px; width: 100%; height: 30px; }
-.d-down { position: absolute; bottom: 5px; width: 100%; height: 30px; }
-.d-left { position: absolute; left: 5px; top: 35px; width: 30px; height: 30px; }
-.d-right { position: absolute; right: 5px; top: 35px; width: 30px; height: 30px; }
-.d-center { width: 30px; height: 30px; font-size: 0.9rem; }
+.d-up { position: absolute; top: 6px; }
+.d-down { position: absolute; bottom: 6px; }
+.d-left { position: absolute; left: 6px; }
+.d-right { position: absolute; right: 6px; }
+.d-center { font-size: 0.9rem; }
 
-.zoom-pad { display: flex; flex-direction: column; gap: 5px; }
-.zoom-pad button { width: 40px; height: 40px; border-bottom: 1px solid #f3f4f6; }
-.zoom-pad button:last-child { border-bottom: none; }
+.zoom-pad {
+    background: rgba(255,255,255,0.95);
+    border-radius: 14px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+}
+
+.d-pad button,
+.zoom-pad button {
+    font-size: 1.2rem;
+    transition: background 0.15s;
+}
+
+.d-pad button:hover,
+.zoom-pad button:hover {
+    background: rgba(0,0,0,0.05);
+}
+
 
 /* Utils */
 .hidden { display: none !important; }
