@@ -1,148 +1,140 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <!-- Core -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-
-    <!-- Identity -->
-    <title>DamnLetsGo · Smart Venue Navigation</title>
-    <meta name="description" content="A zero-cost Progressive Web App for optimized multi-stop navigation inside campuses and large venues using graph algorithms.">
     <meta name="theme-color" content="#2563eb">
-
-    <!-- PWA -->
+    <title>DamnLetsGo</title>
+    
+    <!-- PWA Manifest -->
     <link rel="manifest" href="manifest.json">
-    <link rel="apple-touch-icon" href="icon-192.png">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/854/854878.png">
 
-    <!-- Styles -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Leaflet Routing Machine CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+    
+    <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Custom CSS -->
     <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
 
-<noscript>
-    <div class="noscript-warning">
-        This application requires JavaScript to function correctly.
+    <!-- SEARCH BAR -->
+    <div class="search-container">
+        <div class="search-box">
+            <i class="fa-solid fa-magnifying-glass search-icon"></i>
+            <input type="text" id="search-input" placeholder="Search places..." onkeyup="app.handleSearch()">
+            <i class="fa-solid fa-xmark clear-icon hidden" id="clear-search" onclick="app.clearSearch()"></i>
+        </div>
+        <div id="search-results" class="search-results hidden"></div>
     </div>
-</noscript>
 
-<!-- Floating UI -->
-<div class="ui-container" role="application">
-
-    <div class="control-panel">
-
-        <!-- Header -->
-        <div class="header-row">
-            <h1>
-                <i class="fa-solid fa-location-dot"></i>
-                DamnLetsGo
-            </h1>
-            <div id="connection-status" class="online" aria-label="Connection status"></div>
+    <!-- MAIN DASHBOARD -->
+    <div class="dashboard-container" id="dashboard">
+        <!-- Drag Handle -->
+        <div class="drag-handle" onclick="app.toggleDashboard()">
+            <div class="handle-bar"></div>
         </div>
 
-        <!-- Mode Toggle -->
-        <div class="mode-toggle" role="tablist">
-            <button id="btn-organizer" class="mode-btn active" onclick="app.setMode('organizer')" aria-label="Organizer mode">
-                Organizer
-            </button>
-            <button id="btn-user" class="mode-btn" onclick="app.setMode('user')" aria-label="User mode">
-                User
-            </button>
-        </div>
-
-        <!-- Organizer Panel -->
-        <section id="organizer-controls" aria-labelledby="Organizer Controls">
-            <div class="info-text">
-                <i class="fa-solid fa-circle-info"></i>
-                Tap on the map to add venues. Data is stored locally.
+        <div class="dashboard-content">
+            <div class="header-row">
+                <h1 id="app-title">DamnLetsGo</h1>
+                <!-- Edit Toggle (Subtle) -->
+                <div class="toggle-wrapper">
+                    <span class="toggle-label">Edit Map</span>
+                    <label class="switch">
+                        <input type="checkbox" id="edit-mode-toggle" onchange="app.toggleEditMode()">
+                        <span class="slider round"></span>
+                    </label>
+                </div>
             </div>
 
-            <div class="venue-counter">
-                Venues Created: <strong><span id="venue-count">0</span></strong>
-            </div>
-
-            <div class="organizer-actions">
-                <button class="btn btn-secondary" onclick="app.exportData()">
-                    <i class="fa-solid fa-file-export"></i> Export Map
+            <!-- TRAVEL MODES -->
+            <div class="travel-modes">
+                <button class="t-btn active" onclick="app.setTravelMode('walk', this)">
+                    <i class="fa-solid fa-person-walking"></i> <span>Walk</span>
                 </button>
-                <button class="btn btn-secondary" onclick="app.importData()">
-                    <i class="fa-solid fa-file-import"></i> Import Map
+                <button class="t-btn" onclick="app.setTravelMode('cycle', this)">
+                    <i class="fa-solid fa-bicycle"></i> <span>Cycle</span>
+                </button>
+                <button class="t-btn" onclick="app.setTravelMode('bike', this)">
+                    <i class="fa-solid fa-motorcycle"></i> <span>Bike</span>
+                </button>
+                <button class="t-btn" onclick="app.setTravelMode('car', this)">
+                    <i class="fa-solid fa-car"></i> <span>Car</span>
                 </button>
             </div>
 
-            <button class="btn btn-danger" onclick="app.clearAllData()">
-                <i class="fa-solid fa-trash"></i> Reset Map
-            </button>
-        </section>
+            <!-- STATUS & ACTIONS -->
+            <div id="selection-status" class="status-text">Select venues to start</div>
 
-        <!-- User Panel -->
-        <section id="user-controls" style="display:none;" aria-labelledby="User Controls">
-
-            <div class="info-text">
-                <i class="fa-solid fa-hand-pointer"></i>
-                Select locations to visit. Optimization is automatic.
+            <div class="action-row">
+                <button class="btn btn-primary" onclick="app.calculateRoute()">
+                    <i class="fa-solid fa-diamond-turn-right"></i> Navigate
+                </button>
+                <button class="btn btn-secondary" onclick="app.clearSelection()">
+                    <i class="fa-solid fa-rotate-left"></i> Reset
+                </button>
             </div>
 
-            <div class="selection-counter">
-                Selected Stops: <strong><span id="selection-count">0</span></strong>
+            <!-- RESULTS AREA -->
+            <div id="results-area" class="results-box hidden">
+                <div class="stat-item">
+                    <div class="stat-label">Distance</div>
+                    <div class="stat-value" id="dist-val">0 km</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Est. Time</div>
+                    <div class="stat-value" id="time-val">0 min</div>
+                </div>
+                <div class="algo-badge" id="algo-badge">Optimized Route</div>
             </div>
-
-            <button class="btn btn-primary" onclick="app.calculateRoute()">
-                <i class="fa-solid fa-route"></i> Find Optimized Path
-            </button>
-
-            <button class="btn btn-secondary" onclick="app.clearSelection()">
-                <i class="fa-solid fa-xmark"></i> Clear Selection
-            </button>
-
-            <!-- Results -->
-            <div id="results-area" class="results-box hidden" aria-live="polite">
-
-                <div class="algo-badge" id="algo-name">
-                    Hybrid Engine Idle
-                </div>
-
-                <div class="algo-note" id="algo-note">
-                    Exact optimization for ≤ 9 stops · Heuristic beyond
-                </div>
-
-                <div class="stat-row">
-                    <span>Total Distance</span>
-                    <span id="dist-val">0 m</span>
-                </div>
-
-                <div class="stat-row">
-                    <span>Estimated Time</span>
-                    <span id="time-val">0 min</span>
-                </div>
-
+            
+            <!-- ADMIN CONTROLS (Hidden by default) -->
+            <div id="edit-controls" class="hidden" style="margin-top:15px; border-top:1px solid #eee; padding-top:10px;">
+                <p style="font-size:0.8rem; color:#666; margin-bottom:5px;">Tap map to add points</p>
+                <button class="btn btn-danger small" onclick="app.clearAllData()">Delete All Venues</button>
             </div>
-        </section>
-
+        </div>
     </div>
-</div>
 
-<!-- Toast -->
-<div id="toast" role="status" aria-live="assertive"></div>
+    <!-- MANUAL CONTROLS -->
+    <div class="map-controls">
+        <div class="d-pad">
+            <button class="d-up" onclick="app.panMap(0, -80)"><i class="fa-solid fa-chevron-up"></i></button>
+            <div class="d-middle">
+                <button class="d-left" onclick="app.panMap(-80, 0)"><i class="fa-solid fa-chevron-left"></i></button>
+                <button class="d-center" onclick="app.resetView()" title="Center Map"><i class="fa-solid fa-crosshairs"></i></button>
+                <button class="d-right" onclick="app.panMap(80, 0)"><i class="fa-solid fa-chevron-right"></i></button>
+            </div>
+            <button class="d-down" onclick="app.panMap(0, 80)"><i class="fa-solid fa-chevron-down"></i></button>
+        </div>
+        <div class="zoom-pad">
+            <button onclick="app.zoomMap(1)"><i class="fa-solid fa-plus"></i></button>
+            <button onclick="app.zoomMap(-1)"><i class="fa-solid fa-minus"></i></button>
+        </div>
+    </div>
 
-<!-- Map -->
-<div id="map" role="region" aria-label="Map view"></div>
+    <!-- TOAST -->
+    <div id="toast">Message</div>
 
-<!-- Scripts -->
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="app.js"></script>
+    <!-- MAP -->
+    <div id="map"></div>
 
-<!-- Service Worker -->
-<script>
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js')
-            .catch(err => console.error('Service Worker failed:', err));
-    }
-</script>
-
+    <!-- Scripts -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+    <script src="app.js"></script>
+    
+    <script>
+        // PWA Service Worker Registration
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').catch(err => console.log('SW Fail', err));
+        }
+    </script>
 </body>
 </html>

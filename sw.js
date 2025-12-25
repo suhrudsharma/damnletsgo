@@ -1,106 +1,58 @@
-/* =========================
-   SERVICE WORKER
-   DamnLetsGo PWA
-========================= */
+const CACHE_NAME = 'damnletsgo-v3'; // Bumped to v3 for the new marker icons
+const ASSETS_TO_CACHE = [
+  './',
+  './index.html',
+  './style.css',
+  './app.js',
+  './manifest.json',
+  
+  // External Libraries (Leaflet + Routing Machine)
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+  'https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css',
+  'https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js',
+  
+  // Fonts
+  'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css',
 
-const CACHE_VERSION = "v2";
-const STATIC_CACHE = `damnletsgo-static-${CACHE_VERSION}`;
-const RUNTIME_CACHE = `damnletsgo-runtime-${CACHE_VERSION}`;
-
-/* =========================
-   APP SHELL (LOCAL ONLY)
-========================= */
-const APP_SHELL = [
-  "./",
-  "./index.html",
-  "./style.css",
-  "./app.js",
-  "./manifest.json",
-  "./icon-192.png",
-  "./icon-512.png"
+  // IMPORTANT: Cache the Marker Images & App Icon so they work offline
+  'https://cdn-icons-png.flaticon.com/512/854/854878.png', // App Icon
+  'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
+  'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+  'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png'
 ];
 
-/* =========================
-   INSTALL
-========================= */
-self.addEventListener("install", (event) => {
-  console.log("[SW] Install");
-
-  event.waitUntil(
-    caches.open(STATIC_CACHE).then((cache) => {
-      return cache.addAll(APP_SHELL);
+// 1. Install Event: Cache Core Files
+self.addEventListener('install', (e) => {
+  console.log('[Service Worker] Installing v3...');
+  e.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(ASSETS_TO_CACHE);
     })
   );
-
-  // Activate immediately
-  self.skipWaiting();
 });
 
-/* =========================
-   ACTIVATE
-========================= */
-self.addEventListener("activate", (event) => {
-  console.log("[SW] Activate");
+// 2. Fetch Event: Serve from Cache, fall back to Network
+self.addEventListener('fetch', (e) => {
+  e.respondWith(
+    caches.match(e.request).then((response) => {
+      return response || fetch(e.request);
+    })
+  );
+});
 
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys.map((key) => {
-          if (![STATIC_CACHE, RUNTIME_CACHE].includes(key)) {
-            console.log("[SW] Removing old cache:", key);
+// 3. Activate Event: Clean up old caches (Delete v1/v2)
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
+    caches.keys().then((keyList) => {
+      return Promise.all(
+        keyList.map((key) => {
+          if (key !== CACHE_NAME) {
+            console.log('[Service Worker] Removing old cache', key);
             return caches.delete(key);
           }
         })
-      )
-    )
-  );
-
-  // Take control immediately
-  self.clients.claim();
-});
-
-/* =========================
-   FETCH
-========================= */
-self.addEventListener("fetch", (event) => {
-  const request = event.request;
-
-  // Only handle GET
-  if (request.method !== "GET") return;
-
-  const url = new URL(request.url);
-
-  /* -------------------------
-     1. App Shell (Offline First)
-  ------------------------- */
-  if (APP_SHELL.includes(url.pathname) || url.origin === location.origin) {
-    event.respondWith(
-      caches.match(request).then((cached) => {
-        return (
-          cached ||
-          fetch(request).then((response) => {
-            return caches.open(RUNTIME_CACHE).then((cache) => {
-              cache.put(request, response.clone());
-              return response;
-            });
-          })
-        );
-      })
-    );
-    return;
-  }
-
-  /* -------------------------
-     2. External Libraries & Map Tiles (Network First)
-  ------------------------- */
-  event.respondWith(
-    fetch(request)
-      .then((response) => {
-        return caches.open(RUNTIME_CACHE).then((cache) => {
-          cache.put(request, response.clone());
-          return response;
-        });
-      })
-      .catch(() => caches.match(request))
+      );
+    })
   );
 });
