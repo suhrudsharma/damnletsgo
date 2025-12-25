@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- Core -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+    <!-- Identity -->
+    <title>DamnLetsGo · Smart Venue Navigation</title>
+    <meta name="description" content="A zero-cost Progressive Web App for optimized multi-stop navigation inside campuses and large venues using graph algorithms.">
+    <meta name="theme-color" content="#2563eb">
+
+    <!-- PWA -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<noscript>
+    <div class="noscript-warning">
+        This application requires JavaScript to function correctly.
+    </div>
+</noscript>
+
+<!-- Floating UI -->
+<div class="ui-container" role="application">
+
+    <div class="control-panel">
+
+        <!-- Header -->
+        <div class="header-row">
+            <h1>
+                <i class="fa-solid fa-location-dot"></i>
+                DamnLetsGo
+            </h1>
+            <div id="connection-status" class="online" aria-label="Connection status"></div>
+        </div>
+
+        <!-- Mode Toggle -->
+        <div class="mode-toggle" role="tablist">
+            <button id="btn-organizer" class="mode-btn active" onclick="app.setMode('organizer')" aria-label="Organizer mode">
+                Organizer
+            </button>
+            <button id="btn-user" class="mode-btn" onclick="app.setMode('user')" aria-label="User mode">
+                User
+            </button>
+        </div>
+
+        <!-- Organizer Panel -->
+        <section id="organizer-controls" aria-labelledby="Organizer Controls">
+            <div class="info-text">
+                <i class="fa-solid fa-circle-info"></i>
+                Tap on the map to add venues. Data is stored locally.
+            </div>
+
+            <div class="venue-counter">
+                Venues Created: <strong><span id="venue-count">0</span></strong>
+            </div>
+
+            <div class="organizer-actions">
+                <button class="btn btn-secondary" onclick="app.exportData()">
+                    <i class="fa-solid fa-file-export"></i> Export Map
+                </button>
+                <button class="btn btn-secondary" onclick="app.importData()">
+                    <i class="fa-solid fa-file-import"></i> Import Map
+                </button>
+            </div>
+
+            <button class="btn btn-danger" onclick="app.clearAllData()">
+                <i class="fa-solid fa-trash"></i> Reset Map
+            </button>
+        </section>
+
+        <!-- User Panel -->
+        <section id="user-controls" style="display:none;" aria-labelledby="User Controls">
+
+            <div class="info-text">
+                <i class="fa-solid fa-hand-pointer"></i>
+                Select locations to visit. Optimization is automatic.
+            </div>
+
+            <div class="selection-counter">
+                Selected Stops: <strong><span id="selection-count">0</span></strong>
+            </div>
+
+            <button class="btn btn-primary" onclick="app.calculateRoute()">
+                <i class="fa-solid fa-route"></i> Find Optimized Path
+            </button>
+
+            <button class="btn btn-secondary" onclick="app.clearSelection()">
+                <i class="fa-solid fa-xmark"></i> Clear Selection
+            </button>
+
+            <!-- Results -->
+            <div id="results-area" class="results-box hidden" aria-live="polite">
+
+                <div class="algo-badge" id="algo-name">
+                    Hybrid Engine Idle
+                </div>
+
+                <div class="algo-note" id="algo-note">
+                    Exact optimization for ≤ 9 stops · Heuristic beyond
+                </div>
+
+                <div class="stat-row">
+                    <span>Total Distance</span>
+                    <span id="dist-val">0 m</span>
+                </div>
+
+                <div class="stat-row">
+                    <span>Estimated Time</span>
+                    <span id="time-val">0 min</span>
+                </div>
+
+            </div>
+        </section>
+
+    </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" role="status" aria-live="assertive"></div>
+
+<!-- Map -->
+<div id="map" role="region" aria-label="Map view"></div>
+
+<!-- Scripts -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="app.js"></script>
+
+<!-- Service Worker -->
+<script>
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js')
+            .catch(err => console.error('Service Worker failed:', err));
+    }
+</script>
+
+</body>
+</html>
