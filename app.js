@@ -1,3 +1,20 @@
+// ================= CAMPUS DATA CONFIG (SSOT) =================
+const CAMPUS_DATA_VERSION = "v2";
+
+const CAMPUS_DATA_PATHS = {
+    v1: "./data/vit_campus_graph_v1.json",
+    v2: "./data/vit_campus_graph_v2.json"
+};
+
+const CAMPUS_DATA_URL = CAMPUS_DATA_PATHS[CAMPUS_DATA_VERSION];
+
+if (!CAMPUS_DATA_URL) {
+    throw new Error(
+        "Invalid CAMPUS_DATA_VERSION: " + CAMPUS_DATA_VERSION
+    );
+}
+
+console.log("Using campus data:", CAMPUS_DATA_URL);
 let campusGraphData = null;
 const VIT_CENTER = [12.9692, 79.1559];
 const VIT_ZOOM = 17;
@@ -27,6 +44,7 @@ const app = {
     toastTimer: null,
     isCampusMode: false,
     campusSnapLayers: [],
+campusSelection: [],
 
     // ================= ICONS =================
     icons: {
@@ -51,30 +69,81 @@ const app = {
 
     // ================= CAMPUS GRAPH LOADER =================
     async loadCampusGraph() {
-        const res = await fetch("./data/vit_campus_graph_v1.json");
-        campusGraphData = await res.json();
-        console.log(
-            "Campus graph loaded:",
-            Object.keys(campusGraphData).length,
-            "nodes"
-        );
-    },
+    const res = await fetch(CAMPUS_DATA_URL);
+
+    if (!res.ok) {
+        throw new Error("Failed to load campus graph");
+    }
+
+    campusGraphData = await res.json();
+
+    console.log(
+        "Campus graph loaded:",
+        Object.keys(campusGraphData).length,
+        "nodes"
+    );
+    Object.freeze(campusGraphData);
+
+},
+getCampusNode(id) {
+    if (!campusGraphData) return null;
+    return campusGraphData[id] || null;
+},
+
 
     validateCampusGraph() {
-        for (const id in campusGraphData) {
-            const n = campusGraphData[id];
-            if (typeof n.lat !== "number" || typeof n.lng !== "number") {
-                console.error("Invalid coordinates at node:", id);
+    if (!campusGraphData || typeof campusGraphData !== "object") {
+        console.error("Campus graph is empty or invalid");
+        return false;
+    }
+
+    for (const id in campusGraphData) {
+        const n = campusGraphData[id];
+
+        // Lat/Lng check
+        if (typeof n.lat !== "number" || typeof n.lng !== "number") {
+            console.error("Invalid coordinates at node:", id);
+            return false;
+        }
+
+        // Type check
+        if (!n.type) {
+            console.error("Missing type at node:", id);
+            return false;
+        }
+
+        // Adjacency check
+        if (!n.adj || typeof n.adj !== "object") {
+            console.error("Invalid adjacency at node:", id);
+            return false;
+        }
+
+        for (const neighborId in n.adj) {
+            // Neighbor must exist
+            if (!campusGraphData[neighborId]) {
+                console.error(`Broken edge: ${id} -> ${neighborId}`);
                 return false;
             }
-            if (!n.adj || typeof n.adj !== "object") {
-                console.error("Invalid adjacency at node:", id);
+
+            // Weight must be valid
+            const w = n.adj[neighborId];
+            if (typeof w !== "number" || w <= 0) {
+                console.error(`Invalid edge weight: ${id} -> ${neighborId}`);
+                return false;
+            }
+
+            // No self loops
+            if (neighborId === id) {
+                console.error(`Self loop detected at node: ${id}`);
                 return false;
             }
         }
-        console.log("Campus graph validation OK");
-        return true;
-    },
+    }
+
+    console.log("Campus graph validation OK (strict)");
+    return true;
+},
+
     
     findNearestCampusNode(lat, lng) {
     let nearestId = null;
@@ -84,7 +153,12 @@ const app = {
         const n = campusGraphData[id];
 
         // Only allow ENTRY or POI as routing endpoints
-        if (n.type !== "entry" && n.type !== "poi") continue;
+        // Only ENTRY or POI
+if (n.type !== "entry" && n.type !== "poi") continue;
+
+// Must be connected to graph
+if (!n.adj || Object.keys(n.adj).length === 0) continue;
+
 
         const d = this.getDirectDist(
             { lat, lng },
@@ -100,21 +174,30 @@ const app = {
     return nearestId;
 },
 handleCampusClick(latlng) {
-    const nearestNodeId = this.findNearestCampusNode(latlng.lat, latlng.lng);
+    if (this.campusSelection.length >= 2) {
+        this.showToast("Only start and destination allowed");
+        return;
+    }
 
+    const nearestNodeId = this.findNearestCampusNode(latlng.lat, latlng.lng);
     if (!nearestNodeId) {
         this.showToast("No nearby campus location");
         return;
     }
 
-    const node = campusGraphData[nearestNodeId];
+    if (this.campusSelection.some(v => v.snapTo === nearestNodeId)) {
+        this.showToast("Choose a different campus location");
+        return;
+    }
 
-    // Draw snap line (raw click → snapped node)
+    const node = this.getCampusNode(nearestNodeId);
+    if (!node) {
+        this.showToast("Invalid campus node");
+        return;
+    }
+
     const snapLine = L.polyline(
-        [
-            [latlng.lat, latlng.lng],
-            [node.lat, node.lng]
-        ],
+        [[latlng.lat, latlng.lng], [node.lat, node.lng]],
         {
             color: "#64748b",
             weight: 3,
@@ -125,7 +208,6 @@ handleCampusClick(latlng) {
 
     this.campusSnapLayers.push(snapLine);
 
-    // Marker at snapped node
     const marker = L.marker([node.lat, node.lng], {
         icon: this.icons.selected
     }).addTo(this.map);
@@ -141,13 +223,30 @@ handleCampusClick(latlng) {
         marker
     };
 
-    this.venues.push(venue);
-    this.toggleSelection(venue.id);
+    this.campusSelection.push(venue);
+
+    marker.setIcon(
+        this.campusSelection.length === 1
+            ? this.icons.start
+            : this.icons.selected
+    );
+
+    this.updateUI();
 },
 
 
+clearCampusSnaps() {
+    this.campusSnapLayers.forEach(l => this.map.removeLayer(l));
+    this.campusSnapLayers = [];
+},
+
 
 findCampusShortestPath(startId, endId) {
+    if (!this.getCampusNode(startId) || !this.getCampusNode(endId)) {
+    console.warn("Invalid start or end node");
+    return null;
+}
+
     const distances = {};
     const previous = {};
     const visited = new Set();
@@ -206,6 +305,8 @@ findCampusShortestPath(startId, endId) {
 },
 
 drawCampusRoute(pathResult) {
+    this.clearCampusSnaps();
+
     // Safety
     if (!pathResult || !pathResult.path) return;
 
@@ -217,9 +318,14 @@ drawCampusRoute(pathResult) {
 
     // Convert node IDs to LatLngs
     const latlngs = pathResult.path.map(id => {
-        const n = campusGraphData[id];
-        return [n.lat, n.lng];
-    });
+    const n = this.getCampusNode(id);
+    if (!n) {
+        console.error("Route references missing node:", id);
+        return null;
+    }
+    return [n.lat, n.lng];
+}).filter(Boolean);
+
 
     // Draw polyline
     this.campusRouteLayer = L.polyline(latlngs, {
@@ -236,16 +342,21 @@ drawCampusRoute(pathResult) {
     // Save distance
     let snapDistance = 0;
 
-this.userSelection.forEach(v => {
-    if (v.rawLat !== undefined) {
+for (const v of this.campusSelection) {
+    if (
+        typeof v.rawLat === "number" &&
+        typeof v.rawLng === "number"
+    ) {
         snapDistance += this.getDirectDist(
             { lat: v.rawLat, lng: v.rawLng },
             { lat: v.lat, lng: v.lng }
         );
     }
-});
+}
+
 
 this.currentTotalDistance = pathResult.distance + snapDistance;
+
 
     this.updateTimeAndDistance();
 
@@ -266,16 +377,36 @@ testCampusRoute(startId, endId) {
     this.drawCampusRoute(result);
 },
 enterCampusMode() {
+    this.clearRoute();
+this.lastRoutePath = null;
+this.campusSelection = [];
+
+    if (!campusGraphData) {
+        this.showToast("Campus data not loaded");
+        return;
+    }
+
+    
+    // 1. Set state
     this.isCampusMode = true;
+
+    // 2. Clear previous stuff
     this.clearSelection();
     this.clearRoute();
 
-    // Move map to VIT campus
-    this.map.setView(VIT_CENTER, VIT_ZOOM, { animate: true });
+    // 3. FORCE Leaflet to wake up
+    this.map.invalidateSize(true);
 
+    // 4. Move map AFTER invalidation
+    this.map.setView(VIT_CENTER, VIT_ZOOM, {
+        animate: true
+    });
+
+    // 5. Feedback
     this.showToast("Campus Mode: VIT Vellore");
     console.log("Entered Campus Mode");
 },
+
 
 
 exitCampusMode() {
@@ -286,6 +417,7 @@ exitCampusMode() {
     // Clear snap segments
     this.campusSnapLayers.forEach(l => this.map.removeLayer(l));
     this.campusSnapLayers = [];
+this.campusSelection = [];
 
     this.showToast("Global Mode");
     console.log("Exited Campus Mode");
@@ -294,44 +426,66 @@ exitCampusMode() {
 
 
     // ================= INIT =================
-    async init() {
+    // ================= INIT =================
+async init() {
+    // ===== STEP 4.1: HARD FAIL ON BAD CAMPUS DATA =====
+    try {
         await this.loadCampusGraph();
-        this.validateCampusGraph();
 
-        this.map = L.map('map', { zoomControl: false })
-            .setView([17.3850, 78.4867], 16);
-
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap'
-        }).addTo(this.map);
-
-        // Allow user to add points anywhere (GLOBAL MODE)
-        this.map.on('click', (e) => {
-    if (this.isCampusMode) {
-        this.handleCampusClick(e.latlng);
-        return;
+        const isValid = this.validateCampusGraph();
+        if (!isValid) {
+            throw new Error("Campus graph validation failed");
+        }
+    } catch (err) {
+        console.error(err);
+        alert("Campus data is broken. Fix the JSON before running the app.");
+        return; // ⛔ STOP APP COMPLETELY
     }
-    this.addTempPoint(e.latlng);
+    const resetBtn = document.getElementById("resetBtn");
+
+if (resetBtn) {
+    resetBtn.addEventListener("click", () => {
+        this.resetApp();
+    });
+}
+
+    // ===== MAP INITIALIZATION =====
+    this.map = L.map('map', { zoomControl: false })
+        .setView([17.3850, 78.4867], 16);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap'
+    }).addTo(this.map);
+
+    // ===== MAP CLICK HANDLER =====
+    this.map.on('click', (e) => {
+        if (this.isCampusMode) {
+            this.handleCampusClick(e.latlng);
+            return;
+        }
+        this.addTempPoint(e.latlng);
+    });
+
+    // ===== CAMPUS MODE BUTTON (REGISTER ONCE) =====
     const campusBtn = document.getElementById("campusToggle");
 
-campusBtn.addEventListener("click", () => {
-    if (!this.isCampusMode) {
-        this.enterCampusMode();
-        campusBtn.classList.add("active");
-        campusBtn.innerText = "Campus Mode: ON";
-    } else {
-        this.exitCampusMode();
-        campusBtn.classList.remove("active");
-        campusBtn.innerText = "Campus Mode: OFF";
+    if (campusBtn) {
+        campusBtn.addEventListener("click", () => {
+            if (!this.isCampusMode) {
+                this.enterCampusMode();
+                campusBtn.classList.add("active");
+                campusBtn.innerText = "Campus Mode: ON";
+            } else {
+                this.exitCampusMode();
+                campusBtn.classList.remove("active");
+                campusBtn.innerText = "Campus Mode: OFF";
+            }
+        });
     }
-});
 
-});
+    console.log("Global OSRM Mode Ready");
+},
 
-
-
-        console.log('Global OSRM Mode Ready');
-    },
 
     // ================= POINT HANDLING =================
     addTempPoint(latlng) {
@@ -378,6 +532,8 @@ campusBtn.addEventListener("click", () => {
 
     clearSelection() {
         // Clear snap segments
+        if (this.isCampusMode) return;
+
 this.campusSnapLayers.forEach(l => this.map.removeLayer(l));
 this.campusSnapLayers = [];
 
@@ -394,18 +550,26 @@ this.campusSnapLayers = [];
 
     // ================= ROUTING (GLOBAL) =================
     calculateRoute() {
-    // ===== CAMPUS MODE ROUTING =====
+    // ================= CAMPUS MODE =================
     if (this.isCampusMode) {
-        if (this.userSelection.length < 2) {
+        this.clearCampusSnaps();
+
+        if (this.campusSelection.length !== 2) {
             this.showToast("Select start and destination");
             return;
         }
 
-        const startPoint = this.userSelection[0];
-        const endPoint = this.userSelection[1];
+        const startPoint = this.campusSelection[0];
+        const endPoint = this.campusSelection[1];
 
-        const startNode = this.findNearestCampusNode(startPoint.lat, startPoint.lng);
-        const endNode = this.findNearestCampusNode(endPoint.lat, endPoint.lng);
+        // Safety: same snapped node
+        if (startPoint.snapTo === endPoint.snapTo) {
+            this.showToast("Start and destination are the same");
+            return;
+        }
+
+        const startNode = startPoint.snapTo;
+        const endNode = endPoint.snapTo;
 
         if (!startNode || !endNode) {
             this.showToast("Campus destination not reachable");
@@ -420,12 +584,12 @@ this.campusSnapLayers = [];
         }
 
         this.drawCampusRoute(result);
-        return;
+        return; // ⛔ stop here, do NOT fall into global mode
     }
 
-    // ===== GLOBAL MODE (OSRM) =====
+    // ================= GLOBAL MODE (OSRM) =================
     if (this.userSelection.length < 2) {
-        this.showToast('Select at least 2 locations');
+        this.showToast("Select at least 2 locations");
         return;
     }
 
@@ -442,6 +606,7 @@ this.campusSnapLayers = [];
     this.lastRoutePath = ordered;
     this.drawRoadRoute(ordered);
 },
+
 
 
     // ===== GLOBAL MODE (OSRM) =====
@@ -485,6 +650,46 @@ this.campusSnapLayers = [];
             this.showToast('Routing failed. Check connection.');
         });
     },
+resetApp() {
+    // ===== RESET GLOBAL STATE =====
+    this.clearRoute();
+
+    // Remove global markers
+    this.venues.forEach(v => {
+        if (v.marker) this.map.removeLayer(v.marker);
+    });
+
+    this.venues = [];
+    this.userSelection = [];
+    this.lastRoutePath = null;
+
+    // ===== RESET CAMPUS STATE =====
+    this.campusSelection = [];
+
+    if (this.campusRouteLayer) {
+        this.map.removeLayer(this.campusRouteLayer);
+        this.campusRouteLayer = null;
+    }
+
+    this.clearCampusSnaps();
+
+    // ===== RESET MODE =====
+    this.isCampusMode = false;
+
+    // ===== UI RESET =====
+    document.getElementById('results-area')?.classList.add('hidden');
+
+    const campusBtn = document.getElementById("campusToggle");
+    if (campusBtn) {
+        campusBtn.classList.remove("active");
+        campusBtn.innerText = "Campus Mode: OFF";
+    }
+
+    this.updateUI();
+    this.showToast("Reset complete");
+
+    console.log("App reset");
+},
 
     clearRoute() {
         if (this.routingControl) {
@@ -569,11 +774,20 @@ this.campusSnapLayers = [];
     },
 
     updateUI() {
+    if (this.isCampusMode) {
         document.getElementById('selection-status').innerText =
-            this.userSelection.length
-                ? `${this.userSelection.length} places selected`
-                : 'Tap map to select locations';
-    },
+            this.campusSelection.length
+                ? `${this.campusSelection.length} campus points selected`
+                : 'Tap campus map to select start and destination';
+        return;
+    }
+
+    document.getElementById('selection-status').innerText =
+        this.userSelection.length
+            ? `${this.userSelection.length} places selected`
+            : 'Tap map to select locations';
+},
+
 
     showToast(msg) {
         const t = document.getElementById('toast');
@@ -583,6 +797,7 @@ this.campusSnapLayers = [];
         clearTimeout(this.toastTimer);
         this.toastTimer = setTimeout(() => t.style.opacity = '0', 2500);
     }
+    
 };
 
 window.onload = () => app.init();

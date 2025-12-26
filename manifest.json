@@ -1,27 +1,35 @@
 {
+  "id": "/",
   "name": "DamnLetsGo",
-  "short_name": "DamnLetsGo",
-  "description": "A lightweight PWA for real-world route optimization using live road networks.",
+  "short_name": "DLG",
+  "description": "A progressive web app for smart route optimization across cities and large campuses using real road networks.",
   "lang": "en",
-  "start_url": "/?source=pwa",
+  "start_url": "/index.html",
   "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#2563eb",
-  "orientation": "any",
+  "orientation": "portrait-primary",
   "categories": ["navigation", "maps", "travel", "productivity"],
   "icons": [
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/854/854878.png",
+      "src": "/icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/854/854878.png",
+      "src": "/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
-    }
+    },
+    {
+  "src": "/icons/icon-512-maskable.png",
+  "sizes": "512x512",
+  "type": "image/png",
+  "purpose": "maskable"
+}
+
   ]
 }
