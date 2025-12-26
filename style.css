@@ -230,3 +230,22 @@ h1 {
     font-size: 0.9rem; pointer-events: none;
     box-shadow: 0 4px 12px rgba(0,0,0,0.2);
 }
+.campus-toggle {
+  margin-top: 10px;
+}
+
+.campus-btn {
+  width: 100%;
+  padding: 10px;
+  font-weight: bold;
+  border-radius: 8px;
+  border: 2px solid #16a34a;
+  background: white;
+  color: #16a34a;
+  cursor: pointer;
+}
+
+.campus-btn.active {
+  background: #16a34a;
+  color: white;
+}
