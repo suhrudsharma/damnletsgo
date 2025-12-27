@@ -2,37 +2,23 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-
-    <!-- Mobile-first, PWA-safe -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="theme-color" content="#2563eb">
-
+    <meta name="theme-color" content="#1f2937">
     <title>DamnLetsGo</title>
-
-    <!-- PWA -->
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/854/854878.png">
-
-    <!-- Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-
-    <!-- Routing -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css">
-
-    <!-- Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-
-    <!-- App CSS -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
 
 <!-- ================= SEARCH ================= -->
 <div class="search-container">
     <div class="search-box">
         <i class="fa-solid fa-magnifying-glass search-icon"></i>
-
-        <!-- GLOBAL SEARCH READY -->
         <input
             type="text"
             id="search-input"
@@ -40,104 +26,105 @@
             autocomplete="off"
             onkeyup="app.handleSearch()"
         >
-
         <i class="fa-solid fa-xmark clear-icon hidden" id="clear-search" onclick="app.clearSearch()"></i>
     </div>
-
-    <!-- Will later show geocoding results -->
     <div id="search-results" class="search-results hidden"></div>
 </div>
 
 <!-- ================= DASHBOARD ================= -->
 <div class="dashboard-container" id="dashboard">
-
-    <!-- Drag Handle -->
     <div class="drag-handle">
         <div class="handle-bar"></div>
     </div>
 
     <div class="dashboard-content">
 
-        <!-- HEADER -->
+        <!-- ===== HEADER ===== -->
         <div class="header-row">
-            <h1 id="app-title">DamnLetsGo</h1>
+    <h1 id="app-title">DamnLetsGo</h1>
 
-            <!-- ROUTING MODE (GLOBAL NOW, CAMPUS LATER) -->
-            <div class="toggle-wrapper hidden" id="routing-mode-toggle">
-                <span class="toggle-label">Campus Mode</span>
-                <label class="switch">
-                    <input type="checkbox" disabled>
-                    <span class="slider round"></span>
-                </label>
-            </div>
-        </div>
-
-        <!-- ================= TRAVEL MODES ================= -->
-        <div class="travel-modes">
-            <button class="t-btn active" data-profile="foot" onclick="app.setTravelMode('walk', this)">
-                <i class="fa-solid fa-person-walking"></i>
-                <span>Walk</span>
-            </button>
-
-            <button class="t-btn" data-profile="bike" onclick="app.setTravelMode('cycle', this)">
-                <i class="fa-solid fa-bicycle"></i>
-                <span>Cycle</span>
-            </button>
-
-            <button class="t-btn" data-profile="driving" onclick="app.setTravelMode('bike', this)">
-                <i class="fa-solid fa-motorcycle"></i>
-                <span>Bike</span>
-            </button>
-
-            <button class="t-btn" data-profile="driving" onclick="app.setTravelMode('car', this)">
-                <i class="fa-solid fa-car"></i>
-                <span>Car</span>
-            </button>
-            <div class="campus-toggle">
-  <button id="campusToggle" class="campus-btn">
-    Campus Mode: OFF
-  </button>
+    <button class="info-btn" onclick="app.openHelp()">
+        <i class="fa-solid fa-circle-info"></i>
+    </button>
 </div>
 
-        </div>
 
-        <!-- ================= STATUS ================= -->
+        <!-- ===== STATUS ===== -->
         <div id="selection-status" class="status-text">
             Search or tap places to start
         </div>
 
-        <!-- ================= ACTIONS ================= -->
-        <div class="action-row">
-            <button class="btn btn-primary" onclick="app.calculateRoute()">
-                <i class="fa-solid fa-diamond-turn-right"></i>
-                Navigate
-            </button>
-
-            <button class="btn btn-secondary" onclick="app.resetApp()">
-
-                <i class="fa-solid fa-rotate-left"></i>
-                Reset
+        <!-- ===== CAMPUS MODE TOGGLE ===== -->
+        <div class="campus-toggle">
+            <button id="campusToggle" class="campus-btn">
+                <i class="fa-solid fa-building-columns"></i>
+                Campus Mode: OFF
             </button>
         </div>
 
-        <!-- ================= RESULTS ================= -->
+        <!-- ===== MAIN ACTION BUTTONS ===== -->
+        <div class="action-row">
+            <button class="btn btn-primary" onclick="app.calculateRoute()">
+                <i class="fa-solid fa-route"></i>
+                Navigate
+            </button>
+        </div>
+
+        <!-- ===== TIME ESTIMATION BUTTON (APPEARS AFTER ROUTING) ===== -->
+        <div class="action-row hidden" id="estimate-time-row">
+            <button class="btn btn-secondary" onclick="app.showTimeOptions()">
+                <i class="fa-solid fa-clock"></i>
+                Estimate Time
+            </button>
+        </div>
+
+        <!-- ===== TRAVEL MODES (BETTER POSITION, HIDDEN BY DEFAULT) ===== -->
+        <div class="travel-modes hidden" id="time-options">
+            <button class="t-btn active" data-mode="walk" onclick="app.setTravelMode('walk', this)">
+                <i class="fa-solid fa-person-walking"></i>
+                <span>Walk</span>
+            </button>
+
+            <button class="t-btn" data-mode="cycle" onclick="app.setTravelMode('cycle', this)">
+                <i class="fa-solid fa-bicycle"></i>
+                <span>Cycle</span>
+            </button>
+
+            <button class="t-btn" data-mode="bike" onclick="app.setTravelMode('bike', this)">
+                <i class="fa-solid fa-motorcycle"></i>
+                <span>Bike</span>
+            </button>
+
+            <button class="t-btn" data-mode="car" onclick="app.setTravelMode('car', this)">
+                <i class="fa-solid fa-car"></i>
+                <span>Car</span>
+            </button>
+        </div>
+
+        <!-- ===== RESULTS ===== -->
         <div id="results-area" class="results-box hidden">
             <div class="stat-item">
                 <div class="stat-label">Distance</div>
                 <div class="stat-value" id="dist-val">0 km</div>
             </div>
 
-            <div class="stat-item">
+            <div class="stat-item hidden" id="time-stat">
                 <div class="stat-label">Est. Time</div>
                 <div class="stat-value" id="time-val">0 min</div>
             </div>
-
-            <div class="algo-badge" id="algo-badge">Optimized Route</div>
         </div>
 
-        <!-- ================= EDIT CONTROLS (GLOBAL OFF) ================= -->
-        <div id="edit-controls" class="hidden">
-            <!-- Intentionally hidden in global mode -->
+        <!-- ===== RESET BUTTONS ===== -->
+        <div class="action-row" style="margin-top: 10px;">
+            <button class="btn btn-outline" onclick="app.clearSelectionOnly()">
+                <i class="fa-solid fa-eraser"></i>
+                Clear
+            </button>
+
+            <button class="btn btn-outline" onclick="app.resetApp()">
+                <i class="fa-solid fa-rotate-left"></i>
+                Reset All
+            </button>
         </div>
 
     </div>
@@ -168,6 +155,8 @@
 <!-- ================= SCRIPTS ================= -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+<script src="https://unpkg.com/leaflet-polylinedecorator@1.7.0/dist/leaflet.polylineDecorator.min.js"></script>
+
 <script src="app.js"></script>
 
 <script>
@@ -175,6 +164,59 @@
         navigator.serviceWorker.register('sw.js').catch(console.error);
     }
 </script>
+<!-- ================= HELP MODAL ================= -->
+<div id="help-overlay" class="help-overlay hidden">
+    <div class="help-sheet">
+
+        <div class="help-header">
+            <h2>How to use DamnLetsGo</h2>
+            <button class="help-close" onclick="app.closeHelp()">✕</button>
+        </div>
+
+        <div class="help-content">
+            <div class="help-step">
+                <span class="step-icon">📍</span>
+                <div>
+                    <b>Select places</b>
+                    <p>Tap on the map or search to add locations.</p>
+                </div>
+            </div>
+
+            <div class="help-step">
+                <span class="step-icon">🏫</span>
+                <div>
+                    <b>Campus Mode</b>
+                    <p>Turn ON to navigate inside the campus using walking paths.</p>
+                </div>
+            </div>
+
+            <div class="help-step">
+                <span class="step-icon">🧭</span>
+                <div>
+                    <b>Navigate</b>
+                    <p>Press Navigate to see the shortest route and distance.</p>
+                </div>
+            </div>
+
+            <div class="help-step">
+                <span class="step-icon">⏱️</span>
+                <div>
+                    <b>Estimate Time</b>
+                    <p>Choose walk, cycle, bike, or car to see travel time.</p>
+                </div>
+            </div>
+
+            <div class="help-step">
+                <span class="step-icon">🗑️</span>
+                <div>
+                    <b>Clear vs Reset</b>
+                    <p>Clear removes selection. Reset removes everything.</p>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
 
 </body>
 </html>

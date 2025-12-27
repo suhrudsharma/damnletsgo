@@ -43,7 +43,10 @@ const app = {
     lastRoutePath: null,
     toastTimer: null,
     isCampusMode: false,
-    campusSnapLayers: [],
+    searchResults: [],
+searchAbortController: null,
+searchDebounceTimer: null,
+campusArrowLayer: null,
 campusSelection: [],
 
     // ================= ICONS =================
@@ -66,6 +69,127 @@ campusSelection: [],
             shadowSize: [41, 41]
         })
     },
+searchCampusNodes(query) {
+    if (!campusGraphData) return [];
+
+    const q = query.toLowerCase();
+
+    return Object.values(campusGraphData)
+        .filter(n =>
+            n.name &&
+            (n.type === "entry" || n.type === "poi") &&
+            n.name.toLowerCase().includes(q)
+        )
+        .slice(0, 10); // hard limit for UX
+},
+async searchGlobalPlaces(query) {
+    if (this.searchAbortController) {
+        this.searchAbortController.abort();
+    }
+
+    this.searchAbortController = new AbortController();
+
+    const words = query.trim().split(/\s+/);
+    const isSingleWord = words.length === 1;
+
+    const baseUrl =
+        `https://nominatim.openstreetmap.org/search` +
+        `?format=json` +
+        `&q=${encodeURIComponent(query)}` +
+        `&countrycodes=in` +
+        `&addressdetails=1` +
+        `&limit=15`;
+
+    try {
+        const res = await fetch(baseUrl, {
+            signal: this.searchAbortController.signal,
+            headers: { "Accept-Language": "en" }
+        });
+
+        if (!res.ok) return [];
+
+        const data = await res.json();
+
+        // 🔹 SINGLE WORD → CITY ONLY
+        if (isSingleWord) {
+    return data.filter(p => {
+        const a = p.address || {};
+        return (
+            a.city ||
+            a.town ||
+            a.municipality ||
+            p.type === "university" ||
+            p.type === "hospital"
+        );
+    });
+}
+
+
+        // 🔹 MULTI WORD → POI + CITY, BUT FILTER JUNK
+        return data.filter(p => {
+            const a = p.address || {};
+            return (
+                p.type === "university" ||
+                p.type === "hospital" ||
+                p.type === "college" ||
+                p.class === "amenity" ||
+                a.city ||
+                a.town
+            );
+        });
+
+    } catch {
+        return [];
+    }
+},
+panMap(x, y) {
+    if (!this.map) return;
+
+    this.map.panBy([x, y], {
+        animate: true,
+        duration: 0.3
+    });
+},
+zoomMap(delta) {
+    if (!this.map) return;
+
+    const currentZoom = this.map.getZoom();
+    const newZoom = currentZoom + delta;
+
+    // Optional safety limits
+    if (newZoom < 3 || newZoom > 20) return;
+
+    this.map.setZoom(newZoom);
+},
+openHelp() {
+    document.getElementById("help-overlay").classList.remove("hidden");
+},
+
+closeHelp() {
+    document.getElementById("help-overlay").classList.add("hidden");
+},
+
+resetView() {
+    if (!this.map) return;
+
+    if (this.isCampusMode) {
+        // Campus mode → always go back to VIT
+        this.map.setView(VIT_CENTER, VIT_ZOOM, {
+            animate: true
+        });
+    } else {
+        // Global mode → fit to route if exists
+        if (this.routingControl && this.routingControl._line) {
+            this.map.fitBounds(
+                this.routingControl._line.getBounds(),
+                { padding: [50, 50] }
+            );
+        } else {
+            // Otherwise just keep current center
+            this.map.setView(this.map.getCenter(), this.map.getZoom());
+        }
+    }
+},
 
     // ================= CAMPUS GRAPH LOADER =================
     async loadCampusGraph() {
@@ -173,18 +297,39 @@ if (!n.adj || Object.keys(n.adj).length === 0) continue;
 
     return nearestId;
 },
-handleCampusClick(latlng) {
-    if (this.campusSelection.length >= 2) {
-        this.showToast("Only start and destination allowed");
-        return;
+computeCampusRoute(points) {
+    let fullPath = [];
+    let totalDistance = 0;
+
+    for (let i = 0; i < points.length - 1; i++) {
+        const res = this.findCampusShortestPath(
+            points[i].snapTo,
+            points[i + 1].snapTo
+        );
+
+        if (!res) return null;
+
+        if (i === 0) {
+            fullPath.push(...res.path);
+        } else {
+            fullPath.push(...res.path.slice(1)); // avoid duplicate node
+        }
+
+        totalDistance += res.distance;
     }
 
+    return { path: fullPath, distance: totalDistance };
+},
+
+handleCampusClick(latlng) {
     const nearestNodeId = this.findNearestCampusNode(latlng.lat, latlng.lng);
+    
     if (!nearestNodeId) {
         this.showToast("No nearby campus location");
         return;
     }
 
+    // Check if this snap location is already selected
     if (this.campusSelection.some(v => v.snapTo === nearestNodeId)) {
         this.showToast("Choose a different campus location");
         return;
@@ -196,35 +341,30 @@ handleCampusClick(latlng) {
         return;
     }
 
-    const snapLine = L.polyline(
-        [[latlng.lat, latlng.lng], [node.lat, node.lng]],
-        {
-            color: "#64748b",
-            weight: 3,
-            dashArray: "6,6",
-            opacity: 0.8
-        }
-    ).addTo(this.map);
-
-    this.campusSnapLayers.push(snapLine);
-
-    const marker = L.marker([node.lat, node.lng], {
+    // ✅ CHANGED: Place marker at USER'S CLICK LOCATION (not at snap node)
+    const marker = L.marker([latlng.lat, latlng.lng], {
         icon: this.icons.selected
     }).addTo(this.map);
 
+    // ✅ REMOVED: No more snap lines!
+    // ✅ REMOVED: No more campusSnapLayers!
+
     const venue = {
         id: Date.now(),
-        rawLat: latlng.lat,
-        rawLng: latlng.lng,
-        lat: node.lat,
-        lng: node.lng,
-        snapTo: nearestNodeId,
+        rawLat: latlng.lat,        // User's actual click
+        rawLng: latlng.lng,        // User's actual click
+        lat: latlng.lat,           // Display at user's click
+        lng: latlng.lng,           // Display at user's click
+        snapTo: nearestNodeId,     // But route from this node
+        snapLat: node.lat,         // Store snap node coords for routing
+        snapLng: node.lng,         // Store snap node coords for routing
         name: node.name || "Campus Point",
         marker
     };
 
     this.campusSelection.push(venue);
 
+    // Update marker icon based on position
     marker.setIcon(
         this.campusSelection.length === 1
             ? this.icons.start
@@ -232,13 +372,15 @@ handleCampusClick(latlng) {
     );
 
     this.updateUI();
+    
+    console.log(`Point at [${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}] → routes from "${node.name}"`);
 },
 
 
-clearCampusSnaps() {
-    this.campusSnapLayers.forEach(l => this.map.removeLayer(l));
-    this.campusSnapLayers = [];
-},
+// clearCampusSnaps() {
+//     this.campusSnapLayers.forEach(l => this.map.removeLayer(l));
+//     this.campusSnapLayers = [];
+// },
 
 
 findCampusShortestPath(startId, endId) {
@@ -305,12 +447,10 @@ findCampusShortestPath(startId, endId) {
 },
 
 drawCampusRoute(pathResult) {
-    this.clearCampusSnaps();
+    // ✅ REMOVED: clearCampusSnaps() - not needed anymore
 
-    // Safety
     if (!pathResult || !pathResult.path) return;
 
-    // Clear old campus route if any
     if (this.campusRouteLayer) {
         this.map.removeLayer(this.campusRouteLayer);
         this.campusRouteLayer = null;
@@ -318,50 +458,91 @@ drawCampusRoute(pathResult) {
 
     // Convert node IDs to LatLngs
     const latlngs = pathResult.path.map(id => {
-    const n = this.getCampusNode(id);
-    if (!n) {
-        console.error("Route references missing node:", id);
-        return null;
-    }
-    return [n.lat, n.lng];
-}).filter(Boolean);
+        const n = this.getCampusNode(id);
+        if (!n) {
+            console.error("Route references missing node:", id);
+            return null;
+        }
+        return [n.lat, n.lng];
+    }).filter(Boolean);
 
-
-    // Draw polyline
+    // ✅ NEW: Add user's click points to the route visualization
+    // This connects the user's marker to the routing graph
     this.campusRouteLayer = L.polyline(latlngs, {
-        color: '#16a34a',
-        weight: 6,
-        opacity: 0.9
-    }).addTo(this.map);
+    color: '#16a34a',
+    weight: 6,
+    opacity: 0.9,
+    lineJoin: 'round',
+    lineCap: 'round'
+}).addTo(this.map);
+console.log("Route points:", latlngs.length);
 
-    // Fit map to route
-    this.map.fitBounds(this.campusRouteLayer.getBounds(), {
-        padding: [40, 40]
-    });
-
-    // Save distance
-    let snapDistance = 0;
-
-for (const v of this.campusSelection) {
-    if (
-        typeof v.rawLat === "number" &&
-        typeof v.rawLng === "number"
-    ) {
-        snapDistance += this.getDirectDist(
-            { lat: v.rawLat, lng: v.rawLng },
-            { lat: v.lat, lng: v.lng }
-        );
-    }
+// ===== DIRECTION ARROWS =====
+if (this.campusArrowLayer) {
+    this.map.removeLayer(this.campusArrowLayer);
+    this.campusArrowLayer = null;
 }
 
+this.campusArrowLayer = L.polylineDecorator(this.campusRouteLayer, {
+    patterns: [
+        {
+            offset: 25,
+            repeat: 80,
+            symbol: L.Symbol.arrowHead({
+                pixelSize: 12,
+                polygon: false,
+                pathOptions: {
+                    stroke: true,
+                    color: '#064e3b',
+                    weight: 3
+                }
+            })
+        }
+    ]
+}).addTo(this.map);
 
-this.currentTotalDistance = pathResult.distance + snapDistance;
+    // ✅ CHANGED: Calculate total distance including snap distances
+    let snapDistance = 0;
 
+    // Distance from first user point to first snap node
+    if (this.campusSelection[0]) {
+        snapDistance += this.getDirectDist(
+            { 
+                lat: this.campusSelection[0].rawLat, 
+                lng: this.campusSelection[0].rawLng 
+            },
+            { 
+                lat: this.campusSelection[0].snapLat, 
+                lng: this.campusSelection[0].snapLng 
+            }
+        );
+    }
 
-    this.updateTimeAndDistance();
+    // Distance from last snap node to last user point
+    if (this.campusSelection.length > 0) {
+        const last = this.campusSelection[this.campusSelection.length - 1];
+        snapDistance += this.getDirectDist(
+            { 
+                lat: last.snapLat, 
+                lng: last.snapLng 
+            },
+            { 
+                lat: last.rawLat, 
+                lng: last.rawLng 
+            }
+        );
+    }
 
-    console.log("Campus route drawn");
+    this.currentTotalDistance = pathResult.distance + snapDistance;
+
+    this.updateDistanceOnly();
+    document.getElementById('results-area')?.classList.remove('hidden');
+    document.getElementById('time-stat')?.classList.add('hidden');
+    document.getElementById('time-options')?.classList.add('hidden');
+
+    console.log("Campus route drawn (markers at user locations)");
 },
+
 testCampusRoute(startId, endId) {
     if (!this.isCampusMode) {
         console.warn("Not in campus mode");
@@ -407,20 +588,54 @@ this.campusSelection = [];
     console.log("Entered Campus Mode");
 },
 
+showTimeOptions() {
+    if (!this.currentTotalDistance) {
+        this.showToast("Calculate route first");
+        return;
+    }
 
+    // Show travel mode buttons
+    document.getElementById("time-options").classList.remove("hidden");
+    
+    // Show time stat row
+    document.getElementById("time-stat").classList.remove("hidden");
+    
+    // Calculate and display time immediately
+    this.updateTimeOnly();
+    
+    this.showToast("Select travel mode to see estimated time");
+},
 
 exitCampusMode() {
+    // 1️⃣ Turn off mode FIRST
     this.isCampusMode = false;
-    this.clearSelection();
-    this.clearRoute();
 
-    // Clear snap segments
-    this.campusSnapLayers.forEach(l => this.map.removeLayer(l));
-    this.campusSnapLayers = [];
-this.campusSelection = [];
+    // 2️⃣ Remove campus markers
+    this.campusSelection.forEach(v => {
+        if (v.marker) this.map.removeLayer(v.marker);
+    });
+    this.campusSelection = [];
 
+    // 3️⃣ Remove campus route
+    if (this.campusRouteLayer) {
+        this.map.removeLayer(this.campusRouteLayer);
+        this.campusRouteLayer = null;
+    }
+
+    // 4️⃣ Reset distance & UI
+    this.currentTotalDistance = 0;
+    document.getElementById('results-area')?.classList.add('hidden');
+    document.getElementById('time-options')?.classList.add('hidden');
+    document.getElementById('time-stat')?.classList.add('hidden');
+    document.getElementById('estimate-time-row')?.classList.add('hidden');
+
+    // 5️⃣ Reset view (optional but recommended)
+    this.map.setView([17.3850, 78.4867], 16);
+
+    // 6️⃣ Update UI text
+    this.updateUI();
     this.showToast("Global Mode");
-    console.log("Exited Campus Mode");
+    console.log("Exited Campus Mode cleanly");
 },
 
 
@@ -529,6 +744,156 @@ if (resetBtn) {
 
         this.updateUI();
     },
+    handleSearch() {
+    clearTimeout(this.searchDebounceTimer);
+
+    this.searchDebounceTimer = setTimeout(() => {
+        this._handleSearchInternal();
+    }, 350);
+},
+
+async _handleSearchInternal() {
+    const input = document.getElementById("search-input");
+    const resultsBox = document.getElementById("search-results");
+    const clearBtn = document.getElementById("clear-search");
+
+    if (!input || !resultsBox || !clearBtn) return;
+
+    const query = input.value.trim();
+
+    // ✅ MINIMUM LENGTH FOR GLOBAL SEARCH
+    if (
+    !query ||
+    (!this.isCampusMode &&
+     (query.length < 4)
+    )
+) {
+    resultsBox.classList.add("hidden");
+    clearBtn.classList.add("hidden");
+    return;
+}
+
+    clearBtn.classList.remove("hidden");
+
+    let results = [];
+
+    if (this.isCampusMode) {
+        results = this.searchCampusNodes(query);
+    } else {
+        results = await this.searchGlobalPlaces(query);
+    }
+
+    this.renderSearchResults(results);
+},
+formatPlaceLabel(place) {
+    if (!place.address) return place.display_name;
+
+    const a = place.address;
+
+    const city =
+        a.city ||
+        a.town ||
+        a.municipality;
+
+    const state = a.state;
+    const country = a.country;
+
+    // 🚫 Hide state-only results visually
+    if (!city && state && country) {
+        return `${state}, ${country} (Region)`;
+    }
+
+    let parts = [];
+    if (city) parts.push(city);
+    if (state) parts.push(state);
+    if (country) parts.push(country);
+
+    return parts.join(", ");
+},
+
+deduplicatePlaces(results) {
+    const seen = new Set();
+    const unique = [];
+
+    for (const place of results) {
+        const label = this.formatPlaceLabel(place);
+
+        if (seen.has(label)) continue;
+
+        seen.add(label);
+        unique.push(place);
+    }
+
+    return unique;
+},
+
+renderSearchResults(results) {
+    const box = document.getElementById("search-results");
+    box.innerHTML = "";
+
+    if (!results || results.length === 0) {
+        box.classList.add("hidden");
+        return;
+    }
+
+    // ✅ Deduplicate global results
+    const finalResults = this.isCampusMode
+    ? results
+    : this.deduplicatePlaces(results.slice(0, 8));
+
+
+    finalResults.forEach(item => {
+        const div = document.createElement("div");
+        div.className = "search-item";
+
+        const name = document.createElement("span");
+
+        name.innerText = this.isCampusMode
+            ? item.name
+            : this.formatPlaceLabel(item);
+
+        const btn = document.createElement("span");
+        btn.className = "search-add-btn";
+        btn.innerText = "ADD";
+
+        div.appendChild(name);
+        div.appendChild(btn);
+
+        div.onclick = () => {
+            if (this.isCampusMode) {
+                this.selectCampusSearchResult(item);
+            } else {
+                this.selectGlobalSearchResult(item);
+            }
+            this.clearSearch();
+        };
+
+        box.appendChild(div);
+    });
+
+    box.classList.remove("hidden");
+},
+
+selectCampusSearchResult(node) {
+    this.map.setView([node.lat, node.lng], VIT_ZOOM, { animate: true });
+
+    // Fake a click at node location
+    this.handleCampusClick({
+        lat: node.lat,
+        lng: node.lng
+    });
+},selectGlobalSearchResult(place) {
+    const lat = parseFloat(place.lat);
+    const lng = parseFloat(place.lon);
+
+    this.map.setView([lat, lng], 16, { animate: true });
+    this.addTempPoint({ lat, lng });
+},
+clearSearch() {
+    document.getElementById("search-input").value = "";
+    document.getElementById("search-results").classList.add("hidden");
+    document.getElementById("clear-search").classList.add("hidden");
+},
 
     clearSelection() {
         // Clear snap segments
@@ -552,42 +917,50 @@ this.campusSnapLayers = [];
     calculateRoute() {
     // ================= CAMPUS MODE =================
     if (this.isCampusMode) {
-        this.clearCampusSnaps();
+        // ✅ REMOVED: clearCampusSnaps() - not needed
 
-        if (this.campusSelection.length !== 2) {
-            this.showToast("Select start and destination");
+        if (this.campusSelection.length < 2) {
+            this.showToast("Select at least 2 campus points");
             return;
         }
 
-        const startPoint = this.campusSelection[0];
-        const endPoint = this.campusSelection[1];
-
-        // Safety: same snapped node
-        if (startPoint.snapTo === endPoint.snapTo) {
-            this.showToast("Start and destination are the same");
-            return;
+        for (const p of this.campusSelection) {
+            if (!p.snapTo) {
+                this.showToast("One or more campus points are unreachable");
+                return;
+            }
         }
 
-        const startNode = startPoint.snapTo;
-        const endNode = endPoint.snapTo;
+        let ordered;
 
-        if (!startNode || !endNode) {
-            this.showToast("Campus destination not reachable");
-            return;
+        if (this.campusSelection.length <= this.TSP_THRESHOLD) {
+            const start = this.campusSelection[0];
+            const others = this.campusSelection.slice(1);
+            const optimized = this.solveCampusTSP(start, others);
+            ordered = [start, ...optimized];
+            console.log("Campus route optimized with TSP");
+        } else {
+            ordered = this.solveCampusTSPHeuristic(
+                this.campusSelection[0],
+                this.campusSelection.slice(1)
+            );
+            console.log("Campus route optimized with greedy heuristic");
         }
 
-        const result = this.findCampusShortestPath(startNode, endNode);
+        const result = this.computeCampusRoute(ordered);
 
-        if (!result) {
-            this.showToast("No campus path found");
+        if (!result || !result.path || result.path.length === 0) {
+            this.showToast("No valid campus route found");
             return;
         }
 
         this.drawCampusRoute(result);
-        return; // ⛔ stop here, do NOT fall into global mode
+        document.getElementById('estimate-time-row')?.classList.remove('hidden');
+        
+        return;
     }
 
-    // ================= GLOBAL MODE (OSRM) =================
+    // ================= GLOBAL MODE (UNCHANGED) =================
     if (this.userSelection.length < 2) {
         this.showToast("Select at least 2 locations");
         return;
@@ -605,6 +978,72 @@ this.campusSnapLayers = [];
 
     this.lastRoutePath = ordered;
     this.drawRoadRoute(ordered);
+    document.getElementById('estimate-time-row')?.classList.remove('hidden');
+},
+solveCampusTSP(start, others) {
+    // Brute force TSP using campus graph distances
+    const perms = this.getPermutations(others);
+    let minDist = Infinity;
+    let bestPath = [];
+
+    for (const perm of perms) {
+        let totalDist = 0;
+        let current = start;
+
+        // Calculate total distance through this permutation
+        for (const next of perm) {
+            const segment = this.findCampusShortestPath(
+                current.snapTo,
+                next.snapTo
+            );
+
+            if (!segment) {
+                totalDist = Infinity; // Invalid path
+                break;
+            }
+
+            totalDist += segment.distance;
+            current = next;
+        }
+
+        if (totalDist < minDist) {
+            minDist = totalDist;
+            bestPath = perm;
+        }
+    }
+
+    return bestPath;
+},
+solveCampusTSPHeuristic(start, others) {
+    // Nearest neighbor heuristic using campus graph distances
+    let unvisited = [...others];
+    let path = [start];
+    let current = start;
+
+    while (unvisited.length > 0) {
+        let nearestIdx = 0;
+        let minDist = Infinity;
+
+        // Find nearest unvisited node
+        for (let i = 0; i < unvisited.length; i++) {
+            const segment = this.findCampusShortestPath(
+                current.snapTo,
+                unvisited[i].snapTo
+            );
+
+            if (segment && segment.distance < minDist) {
+                minDist = segment.distance;
+                nearestIdx = i;
+            }
+        }
+
+        // Visit nearest node
+        current = unvisited[nearestIdx];
+        path.push(current);
+        unvisited.splice(nearestIdx, 1);
+    }
+
+    return path;
 },
 
 
@@ -618,43 +1057,47 @@ this.campusSnapLayers = [];
     },
 
     drawRoadRoute(path) {
-        this.clearRoute();
-
-        const waypoints = path.map(v => L.latLng(v.lat, v.lng));
-
-        this.routingControl = L.Routing.control({
-            waypoints,
-            router: L.Routing.osrmv1({
-                serviceUrl: 'https://router.project-osrm.org/route/v1',
-                profile: this.getOSRMProfile()
-            }),
-            createMarker: () => null,
-            addWaypoints: false,
-            draggableWaypoints: false,
-            fitSelectedRoutes: false,
-            show: false,
-            lineOptions: {
-                styles: [{ color: '#2563eb', weight: 6, opacity: 0.85 }]
-            }
-        }).addTo(this.map);
-
-        this.routingControl.on('routesfound', e => {
-            const summary = e.routes[0].summary;
-            this.currentTotalDistance = summary.totalDistance;
-            this.updateTimeAndDistance();
-            document.getElementById('results-area')?.classList.remove('hidden');
-        });
-
-        this.routingControl.on('routingerror', () => {
-            this.clearRoute();
-            this.showToast('Routing failed. Check connection.');
-        });
-    },
-resetApp() {
-    // ===== RESET GLOBAL STATE =====
     this.clearRoute();
 
-    // Remove global markers
+    const waypoints = path.map(v => L.latLng(v.lat, v.lng));
+
+    this.routingControl = L.Routing.control({
+        waypoints,
+        router: L.Routing.osrmv1({
+            serviceUrl: 'https://router.project-osrm.org/route/v1',
+            profile: this.getOSRMProfile()
+        }),
+        createMarker: () => null,
+        addWaypoints: false,
+        draggableWaypoints: false,
+        fitSelectedRoutes: false,
+        show: false,
+        lineOptions: {
+            styles: [{ color: '#2563eb', weight: 6, opacity: 0.85 }]
+        }
+    }).addTo(this.map);
+
+    this.routingControl.on('routesfound', e => {
+        const summary = e.routes[0].summary;
+        this.currentTotalDistance = summary.totalDistance;
+        
+        // ✅ CHANGED: Only show distance, NOT time
+        this.updateDistanceOnly();
+        document.getElementById('results-area')?.classList.remove('hidden');
+        
+        // ✅ NEW: Hide time stat until user clicks "Estimate Time"
+        document.getElementById('time-stat')?.classList.add('hidden');
+        document.getElementById('time-options')?.classList.add('hidden');
+    });
+
+    this.routingControl.on('routingerror', () => {
+        this.clearRoute();
+        this.showToast('Routing failed. Check connection.');
+    });
+},
+resetApp() {
+    this.clearRoute();
+
     this.venues.forEach(v => {
         if (v.marker) this.map.removeLayer(v.marker);
     });
@@ -663,7 +1106,6 @@ resetApp() {
     this.userSelection = [];
     this.lastRoutePath = null;
 
-    // ===== RESET CAMPUS STATE =====
     this.campusSelection = [];
 
     if (this.campusRouteLayer) {
@@ -671,13 +1113,14 @@ resetApp() {
         this.campusRouteLayer = null;
     }
 
-    this.clearCampusSnaps();
+    // ✅ REMOVED: clearCampusSnaps() - not needed
 
-    // ===== RESET MODE =====
     this.isCampusMode = false;
 
-    // ===== UI RESET =====
     document.getElementById('results-area')?.classList.add('hidden');
+    document.getElementById('time-options')?.classList.add('hidden');
+    document.getElementById('time-stat')?.classList.add('hidden');
+    document.getElementById('estimate-time-row')?.classList.add('hidden');
 
     const campusBtn = document.getElementById("campusToggle");
     if (campusBtn) {
@@ -701,16 +1144,49 @@ resetApp() {
 
     // ================= MODE =================
     setTravelMode(mode, btn) {
-        this.currentMode = mode;
-        document.querySelectorAll('.t-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
+    this.currentMode = mode;
 
-        if (this.lastRoutePath) {
-            this.drawRoadRoute(this.lastRoutePath);
-        } else {
-            this.updateTimeAndDistance();
+    // Update active button styling
+    document.querySelectorAll('.t-btn')
+        .forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    // ✅ CRITICAL: Only update time display, DO NOT redraw route
+    this.updateTimeOnly();
+    
+    console.log(`Travel mode: ${mode} (time updated only)`);
+},
+clearSelectionOnly() {
+    if (this.isCampusMode) {
+        this.campusSelection.forEach(v => {
+            if (v.marker) this.map.removeLayer(v.marker);
+        });
+        this.campusSelection = [];
+        
+        // ✅ REMOVED: clearCampusSnaps() - not needed
+        
+        if (this.campusRouteLayer) {
+            this.map.removeLayer(this.campusRouteLayer);
+            this.campusRouteLayer = null;
         }
-    },
+    } else {
+        this.userSelection.forEach(v => {
+            v.marker.setIcon(this.icons.default);
+        });
+        this.userSelection = [];
+    }
+    
+    document.getElementById('results-area')?.classList.add('hidden');
+    document.getElementById('time-options')?.classList.add('hidden');
+    document.getElementById('time-stat')?.classList.add('hidden');
+    document.getElementById('estimate-time-row')?.classList.add('hidden');
+    
+    this.clearRoute();
+    
+    this.updateUI();
+    this.showToast("Selection cleared");
+},
+
 
     // ================= ALGORITHMS =================
     solveTSPBruteForce(start, others) {
@@ -764,14 +1240,25 @@ resetApp() {
     },
 
     // ================= UI =================
-    updateTimeAndDistance() {
-        if (!this.currentTotalDistance) return;
-        const km = this.currentTotalDistance / 1000;
-        const mins = Math.ceil((km / this.speeds[this.currentMode]) * 60);
-        document.getElementById('dist-val').innerText =
-            km > 1 ? km.toFixed(2) + ' km' : Math.round(this.currentTotalDistance) + ' m';
-        document.getElementById('time-val').innerText = mins + ' min';
-    },
+    
+updateDistanceOnly() {
+    if (!this.currentTotalDistance) return;
+
+    const km = this.currentTotalDistance / 1000;
+    document.getElementById('dist-val').innerText =
+        km >= 1
+            ? km.toFixed(2) + ' km'
+            : Math.round(this.currentTotalDistance) + ' m';
+},
+updateTimeOnly() {
+    if (!this.currentTotalDistance) return;
+
+    const km = this.currentTotalDistance / 1000;
+    const speed = this.speeds[this.currentMode];
+    const mins = Math.ceil((km / speed) * 60);
+
+    document.getElementById('time-val').innerText = mins + ' min';
+},
 
     updateUI() {
     if (this.isCampusMode) {
