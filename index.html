@@ -2,8 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#1f2937">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>DamnLetsGo</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/854/854878.png">
@@ -31,6 +34,27 @@
     <div id="search-results" class="search-results hidden"></div>
 </div>
 
+<!-- ================= UNDO/REDO BUTTONS ================= -->
+<div class="undo-redo-container">
+    <button id="undo-btn" class="undo-redo-btn" onclick="app.undo()" title="Undo (Ctrl+Z)">
+        <i class="fa-solid fa-rotate-left"></i>
+    </button>
+    <button id="redo-btn" class="undo-redo-btn" onclick="app.redo()" title="Redo (Ctrl+Y)">
+        <i class="fa-solid fa-rotate-right"></i>
+    </button>
+</div>
+<!-- ================= ARROW TOGGLE BUTTON ================= -->
+<div class="arrow-toggle-container">
+    <button id="arrow-toggle-btn" class="arrow-toggle-btn active" onclick="app.toggleArrows()" title="Toggle Direction Arrows">
+        <i class="fa-solid fa-arrow-right"></i>
+    </button>
+</div>
+<!-- ================= DARK MODE TOGGLE BUTTON ================= -->
+<div class="dark-mode-toggle-container">
+    <button id="dark-mode-toggle-btn" class="dark-mode-toggle-btn" onclick="app.toggleDarkMode()" title="Toggle Dark Mode">
+        <i class="fa-solid fa-moon"></i>
+    </button>
+</div>
 <!-- ================= DASHBOARD ================= -->
 <div class="dashboard-container" id="dashboard">
     <div class="drag-handle">
@@ -155,8 +179,19 @@
 <!-- ================= SCRIPTS ================= -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
-<script src="https://unpkg.com/leaflet-polylinedecorator@1.7.0/dist/leaflet.polylineDecorator.min.js"></script>
-
+<script src="https://cdn.jsdelivr.net/npm/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.min.js"></script>
+<script>
+// Diagnostic check
+window.addEventListener('load', function() {
+    console.log('Leaflet loaded:', typeof L !== 'undefined');
+    console.log('Routing loaded:', typeof L.Routing !== 'undefined');
+    console.log('Decorator loaded:', typeof L.polylineDecorator !== 'undefined');
+    
+    if (typeof L.polylineDecorator === 'undefined') {
+        alert('⚠️ Arrow library failed to load! Check your internet connection.');
+    }
+});
+</script>
 <script src="app.js"></script>
 
 <script>
@@ -178,7 +213,7 @@
                 <span class="step-icon">📍</span>
                 <div>
                     <b>Select places</b>
-                    <p>Tap on the map or search to add locations.</p>
+                    <p>Tap on the map or search to add locations.(red pointer=start)</p>
                 </div>
             </div>
 

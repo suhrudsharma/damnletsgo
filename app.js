@@ -33,6 +33,7 @@ const app = {
     },
 
     // ================= STATE =================
+   // ================= STATE =================
     map: null,
     currentMode: 'walk',
     venues: [],
@@ -44,10 +45,18 @@ const app = {
     toastTimer: null,
     isCampusMode: false,
     searchResults: [],
-searchAbortController: null,
-searchDebounceTimer: null,
-campusArrowLayer: null,
-campusSelection: [],
+    searchAbortController: null,
+    searchDebounceTimer: null,
+    campusArrowLayer: null,
+    globalArrowLayer: null,
+    campusSelection: [],
+    
+    // ================= UNDO/REDO =================
+    history: [],
+    historyIndex: -1,
+    maxHistorySize: 20,
+    // ================= ARROW TOGGLE =================
+    showArrows: true,
 
     // ================= ICONS =================
     icons: {
@@ -374,6 +383,9 @@ handleCampusClick(latlng) {
     this.updateUI();
     
     console.log(`Point at [${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}] → routes from "${node.name}"`);
+    
+    // ✅ Save state for undo/redo
+    this.saveState();
 },
 
 
@@ -478,28 +490,46 @@ drawCampusRoute(pathResult) {
 console.log("Route points:", latlngs.length);
 
 // ===== DIRECTION ARROWS =====
+// ===== DIRECTION ARROWS (IMPROVED) =====
+// ===== DIRECTION ARROWS (WITH TOGGLE) =====
 if (this.campusArrowLayer) {
     this.map.removeLayer(this.campusArrowLayer);
     this.campusArrowLayer = null;
 }
 
-this.campusArrowLayer = L.polylineDecorator(this.campusRouteLayer, {
-    patterns: [
-        {
-            offset: 25,
-            repeat: 80,
-            symbol: L.Symbol.arrowHead({
-                pixelSize: 12,
-                polygon: false,
-                pathOptions: {
-                    stroke: true,
-                    color: '#064e3b',
-                    weight: 3
+if (this.showArrows && typeof L.polylineDecorator !== 'undefined') {
+    try {
+        this.campusArrowLayer = L.polylineDecorator(this.campusRouteLayer, {
+            patterns: [
+                {
+                    offset: 50,
+                    repeat: 100,
+                    symbol: L.Symbol.arrowHead({
+                        pixelSize: 24,
+                        polygon: true,
+                        pathOptions: {
+                            fillOpacity: 1,
+                            weight: 3,
+                            color: '#000000',
+                            fillColor: '#FFD700',
+                            stroke: true
+                        }
+                    })
                 }
-            })
-        }
-    ]
-}).addTo(this.map);
+            ]
+        }).addTo(this.map);
+        
+        console.log('✅ Campus arrows added');
+    } catch (error) {
+        console.warn('⚠️ Failed to add campus arrows:', error);
+    }
+} else if (!this.showArrows) {
+    console.log('Arrows disabled by user');
+} else {
+    console.error('❌ L.polylineDecorator not loaded');
+}
+
+
 
     // ✅ CHANGED: Calculate total distance including snap distances
     let snapDistance = 0;
@@ -621,6 +651,12 @@ exitCampusMode() {
         this.map.removeLayer(this.campusRouteLayer);
         this.campusRouteLayer = null;
     }
+    
+    // 3.5️⃣ Remove campus arrows
+    if (this.campusArrowLayer) {
+        this.map.removeLayer(this.campusArrowLayer);
+        this.campusArrowLayer = null;
+    }
 
     // 4️⃣ Reset distance & UI
     this.currentTotalDistance = 0;
@@ -680,6 +716,24 @@ if (resetBtn) {
         }
         this.addTempPoint(e.latlng);
     });
+    
+    // ===== KEYBOARD SHORTCUTS =====
+    document.addEventListener('keydown', (e) => {
+        // Ctrl+Z or Cmd+Z = Undo
+        if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+            e.preventDefault();
+            this.undo();
+        }
+        
+        // Ctrl+Y or Ctrl+Shift+Z = Redo
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) {
+            e.preventDefault();
+            this.redo();
+        }
+    });
+    
+    // ===== INITIALIZE UNDO/REDO BUTTONS =====
+    this.updateUndoRedoButtons();
 
     // ===== CAMPUS MODE BUTTON (REGISTER ONCE) =====
     const campusBtn = document.getElementById("campusToggle");
@@ -699,6 +753,14 @@ if (resetBtn) {
     }
 
     console.log("Global OSRM Mode Ready");
+    // ===== INITIALIZE UNDO/REDO BUTTONS =====
+    this.updateUndoRedoButtons();
+    
+    // ===== AUTO DARK MODE =====
+    this.initDarkMode();
+
+    console.log("Global OSRM Mode Ready");
+
 },
 
 
@@ -719,6 +781,9 @@ if (resetBtn) {
 
         this.venues.push(venue);
         this.toggleSelection(id);
+        
+        // ✅ Save state for undo/redo
+        this.saveState();
     },
 
     toggleSelection(id) {
@@ -896,11 +961,7 @@ clearSearch() {
 },
 
     clearSelection() {
-        // Clear snap segments
         if (this.isCampusMode) return;
-
-this.campusSnapLayers.forEach(l => this.map.removeLayer(l));
-this.campusSnapLayers = [];
 
         if (this.campusRouteLayer) {
             this.map.removeLayer(this.campusRouteLayer);
@@ -912,7 +973,6 @@ this.campusSnapLayers = [];
         this.clearRoute();
         this.updateUI();
     },
-
     // ================= ROUTING (GLOBAL) =================
     calculateRoute() {
     // ================= CAMPUS MODE =================
@@ -1081,11 +1141,11 @@ solveCampusTSPHeuristic(start, others) {
         const summary = e.routes[0].summary;
         this.currentTotalDistance = summary.totalDistance;
         
-        // ✅ CHANGED: Only show distance, NOT time
+        // ✅ Add arrows to global route
+        this.addGlobalRouteArrows(e.routes[0]);
+        
         this.updateDistanceOnly();
         document.getElementById('results-area')?.classList.remove('hidden');
-        
-        // ✅ NEW: Hide time stat until user clicks "Estimate Time"
         document.getElementById('time-stat')?.classList.add('hidden');
         document.getElementById('time-options')?.classList.add('hidden');
     });
@@ -1094,6 +1154,52 @@ solveCampusTSPHeuristic(start, others) {
         this.clearRoute();
         this.showToast('Routing failed. Check connection.');
     });
+},
+addGlobalRouteArrows(route) {
+    // Remove old arrows if they exist
+    if (this.globalArrowLayer) {
+        this.map.removeLayer(this.globalArrowLayer);
+        this.globalArrowLayer = null;
+    }
+
+    // Get the route line from the routing control
+    if (!this.routingControl || !this.routingControl._line) {
+        console.warn('No routing line available for arrows');
+        return;
+    }
+
+    // Only add if arrows are enabled and library is loaded
+    if (this.showArrows && typeof L.polylineDecorator !== 'undefined') {
+        try {
+            this.globalArrowLayer = L.polylineDecorator(this.routingControl._line, {
+                patterns: [
+                    {
+                        offset: 60,
+                        repeat: 120,
+                        symbol: L.Symbol.arrowHead({
+                            pixelSize: 24,
+                            polygon: true,
+                            pathOptions: {
+                                fillOpacity: 1,
+                                weight: 3,
+                                color: '#000000',
+                                fillColor: '#FFD700',
+                                stroke: true
+                            }
+                        })
+                    }
+                ]
+            }).addTo(this.map);
+            
+            console.log('✅ Global arrows added');
+        } catch (error) {
+            console.warn('⚠️ Failed to add global arrows:', error);
+        }
+    } else if (!this.showArrows) {
+        console.log('Arrows disabled by user');
+    } else {
+        console.error('❌ L.polylineDecorator not loaded');
+    }
 },
 resetApp() {
     this.clearRoute();
@@ -1112,8 +1218,17 @@ resetApp() {
         this.map.removeLayer(this.campusRouteLayer);
         this.campusRouteLayer = null;
     }
-
-    // ✅ REMOVED: clearCampusSnaps() - not needed
+    
+    // Clear all arrow layers
+    if (this.campusArrowLayer) {
+        this.map.removeLayer(this.campusArrowLayer);
+        this.campusArrowLayer = null;
+    }
+    
+    if (this.globalArrowLayer) {
+        this.map.removeLayer(this.globalArrowLayer);
+        this.globalArrowLayer = null;
+    }
 
     this.isCampusMode = false;
 
@@ -1139,9 +1254,15 @@ resetApp() {
             this.map.removeControl(this.routingControl);
             this.routingControl = null;
         }
+        
+        // Clear global route arrows
+        if (this.globalArrowLayer) {
+            this.map.removeLayer(this.globalArrowLayer);
+            this.globalArrowLayer = null;
+        }
+        
         document.getElementById('results-area')?.classList.add('hidden');
     },
-
     // ================= MODE =================
     setTravelMode(mode, btn) {
     this.currentMode = mode;
@@ -1250,6 +1371,7 @@ updateDistanceOnly() {
             ? km.toFixed(2) + ' km'
             : Math.round(this.currentTotalDistance) + ' m';
 },
+
 updateTimeOnly() {
     if (!this.currentTotalDistance) return;
 
@@ -1276,6 +1398,7 @@ updateTimeOnly() {
 },
 
 
+   
     showToast(msg) {
         const t = document.getElementById('toast');
         if (!t) return;
@@ -1283,7 +1406,342 @@ updateTimeOnly() {
         t.style.opacity = '1';
         clearTimeout(this.toastTimer);
         this.toastTimer = setTimeout(() => t.style.opacity = '0', 2500);
-    }
+    },
+    
+    // ================= DARK MODE =================
+    initDarkMode() {
+        // Check saved preference first
+        const savedMode = localStorage.getItem('darkMode');
+        
+        if (savedMode === 'enabled') {
+            this.enableDarkMode();
+        } else if (savedMode === 'disabled') {
+            this.disableDarkMode();
+        } else {
+            // Auto-detect based on time
+            this.autoDetectDarkMode();
+        }
+        
+        // Update every hour
+        setInterval(() => this.autoDetectDarkMode(), 60 * 60 * 1000);
+        
+        console.log('Dark mode initialized');
+    },
+    
+    autoDetectDarkMode() {
+        const hour = new Date().getHours();
+        
+        // Dark mode between 7 PM (19:00) and 6 AM (6:00)
+        if (hour >= 19 || hour < 6) {
+            this.enableDarkMode();
+        } else {
+            this.disableDarkMode();
+        }
+    },
+    
+    enableDarkMode() {
+        document.body.classList.add('dark-mode');
+        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#000000');
+        
+        const btn = document.getElementById('dark-mode-toggle-btn');
+        if (btn) {
+            btn.classList.add('active');
+            btn.innerHTML = '<i class="fa-solid fa-sun"></i>';
+        }
+        
+        console.log('🌙 Dark mode enabled');
+    },
+    
+    disableDarkMode() {
+        document.body.classList.remove('dark-mode');
+        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#1f2937');
+        
+        const btn = document.getElementById('dark-mode-toggle-btn');
+        if (btn) {
+            btn.classList.remove('active');
+            btn.innerHTML = '<i class="fa-solid fa-moon"></i>';
+        }
+        
+        console.log('☀️ Light mode enabled');
+    },
+    
+    toggleDarkMode() {
+        if (document.body.classList.contains('dark-mode')) {
+            this.disableDarkMode();
+            localStorage.setItem('darkMode', 'disabled');
+        } else {
+            this.enableDarkMode();
+            localStorage.setItem('darkMode', 'enabled');
+        }
+    },
+    
+
+    
+    // ================= UNDO/REDO SYSTEM =================
+    saveState() {
+        // Only save if something has changed
+        const currentState = this.captureState();
+        
+        // Don't save duplicate states
+        if (this.historyIndex >= 0) {
+            const lastState = this.history[this.historyIndex];
+            if (JSON.stringify(lastState) === JSON.stringify(currentState)) {
+                return;
+            }
+        }
+        
+        // Remove any states after current index (when user made new action after undo)
+        this.history = this.history.slice(0, this.historyIndex + 1);
+        
+        // Add new state
+        this.history.push(currentState);
+        this.historyIndex++;
+        
+        // Limit history size
+        if (this.history.length > this.maxHistorySize) {
+            this.history.shift();
+            this.historyIndex--;
+        }
+        
+        this.updateUndoRedoButtons();
+    },
+    
+    captureState() {
+        return {
+            isCampusMode: this.isCampusMode,
+            venues: this.venues.map(v => ({
+                id: v.id,
+                lat: v.lat,
+                lng: v.lng,
+                name: v.name
+            })),
+            userSelection: this.userSelection.map(v => v.id),
+            campusSelection: this.campusSelection.map(v => ({
+                id: v.id,
+                rawLat: v.rawLat,
+                rawLng: v.rawLng,
+                snapTo: v.snapTo,
+                snapLat: v.snapLat,
+                snapLng: v.snapLng,
+                name: v.name
+            }))
+        };
+    },
+    
+    restoreState(state) {
+        // Clear current state
+        this.venues.forEach(v => {
+            if (v.marker) this.map.removeLayer(v.marker);
+        });
+        
+        this.campusSelection.forEach(v => {
+            if (v.marker) this.map.removeLayer(v.marker);
+        });
+        
+        this.clearRoute();
+        
+        // Restore mode
+        this.isCampusMode = state.isCampusMode;
+        
+        // Update campus button
+        const campusBtn = document.getElementById("campusToggle");
+        if (campusBtn) {
+            if (this.isCampusMode) {
+                campusBtn.classList.add("active");
+                campusBtn.innerText = "Campus Mode: ON";
+            } else {
+                campusBtn.classList.remove("active");
+                campusBtn.innerText = "Campus Mode: OFF";
+            }
+        }
+        
+        if (this.isCampusMode) {
+            // Restore campus selection
+            this.campusSelection = [];
+            
+            state.campusSelection.forEach(saved => {
+                const marker = L.marker([saved.rawLat, saved.rawLng], {
+                    icon: this.campusSelection.length === 0 
+                        ? this.icons.start 
+                        : this.icons.selected
+                }).addTo(this.map);
+                
+                this.campusSelection.push({
+                    ...saved,
+                    marker
+                });
+            });
+            
+        } else {
+            // Restore global venues
+            this.venues = [];
+            this.userSelection = [];
+            
+            state.venues.forEach(saved => {
+                const marker = L.marker([saved.lat, saved.lng]).addTo(this.map);
+                marker.on('click', () => this.toggleSelection(saved.id));
+                
+                const venue = {
+                    id: saved.id,
+                    lat: saved.lat,
+                    lng: saved.lng,
+                    name: saved.name,
+                    marker
+                };
+                
+                this.venues.push(venue);
+                
+                if (state.userSelection.includes(saved.id)) {
+                    this.userSelection.push(venue);
+                    marker.setIcon(
+                        this.userSelection.length === 1 
+                            ? this.icons.start 
+                            : this.icons.selected
+                    );
+                }
+            });
+        }
+        
+        this.updateUI();
+    },
+    
+    undo() {
+        if (this.historyIndex <= 0) {
+            this.showToast("Nothing to undo");
+            return;
+        }
+        
+        this.historyIndex--;
+        this.restoreState(this.history[this.historyIndex]);
+        this.updateUndoRedoButtons();
+        this.showToast("Undo");
+    },
+    
+    redo() {
+        if (this.historyIndex >= this.history.length - 1) {
+            this.showToast("Nothing to redo");
+            return;
+        }
+        
+        this.historyIndex++;
+        this.restoreState(this.history[this.historyIndex]);
+        this.updateUndoRedoButtons();
+        this.showToast("Redo");
+    },
+    updateUndoRedoButtons() {
+        const undoBtn = document.getElementById('undo-btn');
+        const redoBtn = document.getElementById('redo-btn');
+        
+        if (undoBtn) {
+            undoBtn.disabled = this.historyIndex <= 0;
+        }
+        
+        if (redoBtn) {
+            redoBtn.disabled = this.historyIndex >= this.history.length - 1;
+        }
+    },
+    
+    // ================= ARROW TOGGLE =================
+    toggleArrows() {
+        this.showArrows = !this.showArrows;
+        
+        const btn = document.getElementById('arrow-toggle-btn');
+        if (btn) {
+            if (this.showArrows) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        }
+        
+        // Redraw current route with/without arrows
+        if (this.isCampusMode) {
+            if (this.campusRouteLayer) {
+                // Remove existing arrows
+                if (this.campusArrowLayer) {
+                    this.map.removeLayer(this.campusArrowLayer);
+                    this.campusArrowLayer = null;
+                }
+                
+                // Add arrows if enabled
+                if (this.showArrows && typeof L.polylineDecorator !== 'undefined') {
+                    try {
+                        this.campusArrowLayer = L.polylineDecorator(this.campusRouteLayer, {
+                            patterns: [
+                                {
+                                    offset: 50,
+                                    repeat: 100,
+                                    symbol: L.Symbol.arrowHead({
+                                        pixelSize: 24,
+                                        polygon: true,
+                                        pathOptions: {
+                                            fillOpacity: 1,
+                                            weight: 3,
+                                            color: '#000000',
+                                            fillColor: '#FFD700',
+                                            stroke: true
+                                        }
+                                    })
+                                }
+                            ]
+                        }).addTo(this.map);
+                    } catch (error) {
+                        console.warn('Failed to toggle campus arrows:', error);
+                    }
+                }
+            }
+        } else {
+            if (this.routingControl && this.routingControl._line) {
+                // Remove existing arrows
+                if (this.globalArrowLayer) {
+                    this.map.removeLayer(this.globalArrowLayer);
+                    this.globalArrowLayer = null;
+                }
+                
+                // Add arrows if enabled
+                if (this.showArrows && typeof L.polylineDecorator !== 'undefined') {
+                    try {
+                        this.globalArrowLayer = L.polylineDecorator(this.routingControl._line, {
+                            patterns: [
+                                {
+                                    offset: 60,
+                                    repeat: 120,
+                                    symbol: L.Symbol.arrowHead({
+                                        pixelSize: 24,
+                                        polygon: true,
+                                        pathOptions: {
+                                            fillOpacity: 1,
+                                            weight: 3,
+                                            color: '#000000',
+                                            fillColor: '#FFD700',
+                                            stroke: true
+                                        }
+                                    })
+                                }
+                            ]
+                        }).addTo(this.map);
+                    } catch (error) {
+                        console.warn('Failed to toggle global arrows:', error);
+                    }
+                }
+            }
+        }
+        
+        this.showToast(this.showArrows ? 'Arrows ON' : 'Arrows OFF');
+    },
+    
+    updateUndoRedoButtons() {
+        const undoBtn = document.getElementById('undo-btn');
+        const redoBtn = document.getElementById('redo-btn');
+        
+        if (undoBtn) {
+            undoBtn.disabled = this.historyIndex <= 0;
+        }
+        
+        if (redoBtn) {
+            redoBtn.disabled = this.historyIndex >= this.history.length - 1;
+        }
+    },
     
 };
 
