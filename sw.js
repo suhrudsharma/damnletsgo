@@ -1,4 +1,4 @@
-const CACHE_NAME = 'damnletsgo-v5';
+const CACHE_NAME = 'damnletsgo-v2.2'; 
 
 // ================= APP SHELL =================
 const APP_SHELL = [
@@ -7,14 +7,7 @@ const APP_SHELL = [
   '/style.css',
   '/app.js',
   '/manifest.json',
-
-  // Campus data (CRITICAL)
-  '/data/vit_campus_graph_v2.json',
-
-  // Leaflet assets (required for offline UI)
-  '/leaflet/leaflet.css',
-  '/leaflet/leaflet.js',
-  '/leaflet/images/marker-shadow.png'
+  '/data/vit_campus_graph_v2.json'
 ];
 
 // ================= INSTALL =================
@@ -27,7 +20,7 @@ self.addEventListener('install', (event) => {
         try {
           await cache.add(asset);
         } catch (err) {
-          console.warn('SW: failed to cache', asset, err);
+          console.warn('SW: failed to cache', asset);
         }
       }
     })
@@ -41,6 +34,7 @@ self.addEventListener('activate', (event) => {
       Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME) {
+            console.log('SW: Deleting old cache', key);
             return caches.delete(key);
           }
         })

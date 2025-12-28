@@ -2,15 +2,15 @@
   "id": "/",
   "name": "DamnLetsGo",
   "short_name": "DLG",
-  "description": "A progressive web app for smart route optimization across cities and large campuses using real road networks.",
+  "description": "Smart route optimization for cities and campuses. Find the shortest path with TSP algorithms and real-time navigation.",
   "lang": "en",
-  "start_url": "/index.html",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#2563eb",
+  "theme_color": "#1f2937",
   "orientation": "portrait-primary",
-  "categories": ["navigation", "maps", "travel", "productivity"],
+  "categories": ["navigation", "maps", "travel", "productivity", "utilities"],
   "icons": [
     {
       "src": "/icons/icon-192.png",
@@ -25,11 +25,18 @@
       "purpose": "any"
     },
     {
-  "src": "/icons/icon-512-maskable.png",
-  "sizes": "512x512",
-  "type": "image/png",
-  "purpose": "maskable"
-}
-
+      "src": "/icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/mobile.png",
+      "sizes": "540x720",
+      "type": "image/png",
+      "form_factor": "narrow"
+    }
   ]
 }

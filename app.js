@@ -1202,24 +1202,29 @@ addGlobalRouteArrows(route) {
     }
 },
 resetApp() {
+    // 1️⃣ Clear ALL routes
     this.clearRoute();
 
+    // 2️⃣ Remove ALL global markers
     this.venues.forEach(v => {
-        if (v.marker) this.map.removeLayer(v.marker);
+        if (v.marker) {
+            this.map.removeLayer(v.marker);
+        }
     });
 
-    this.venues = [];
-    this.userSelection = [];
-    this.lastRoutePath = null;
+    // 3️⃣ Remove ALL campus markers
+    this.campusSelection.forEach(v => {
+        if (v.marker) {
+            this.map.removeLayer(v.marker);
+        }
+    });
 
-    this.campusSelection = [];
-
+    // 4️⃣ Clear ALL route layers
     if (this.campusRouteLayer) {
         this.map.removeLayer(this.campusRouteLayer);
         this.campusRouteLayer = null;
     }
     
-    // Clear all arrow layers
     if (this.campusArrowLayer) {
         this.map.removeLayer(this.campusArrowLayer);
         this.campusArrowLayer = null;
@@ -1230,23 +1235,40 @@ resetApp() {
         this.globalArrowLayer = null;
     }
 
+    // 5️⃣ Reset ALL state
+    this.venues = [];
+    this.userSelection = [];
+    this.campusSelection = [];
+    this.lastRoutePath = null;
+    this.currentTotalDistance = 0;
     this.isCampusMode = false;
 
+    // 6️⃣ Reset ALL history (undo/redo)
+    this.history = [];
+    this.historyIndex = -1;
+    this.updateUndoRedoButtons();
+
+    // 7️⃣ Hide ALL UI elements
     document.getElementById('results-area')?.classList.add('hidden');
     document.getElementById('time-options')?.classList.add('hidden');
     document.getElementById('time-stat')?.classList.add('hidden');
     document.getElementById('estimate-time-row')?.classList.add('hidden');
 
+    // 8️⃣ Reset campus button
     const campusBtn = document.getElementById("campusToggle");
     if (campusBtn) {
         campusBtn.classList.remove("active");
         campusBtn.innerText = "Campus Mode: OFF";
     }
 
-    this.updateUI();
-    this.showToast("Reset complete");
+    // 9️⃣ (REMOVED) Do not reset map view
+    // this.map.setView([17.3850, 78.4867], 16); <--- THIS WAS THE PROBLEM
 
-    console.log("App reset");
+    // 🔟 Update UI
+    this.updateUI();
+    this.showToast("Everything reset - Fresh start!");
+
+    console.log("✅ Complete app reset");
 },
 
     clearRoute() {
@@ -1279,35 +1301,36 @@ resetApp() {
 },
 clearSelectionOnly() {
     if (this.isCampusMode) {
-        this.campusSelection.forEach(v => {
-            if (v.marker) this.map.removeLayer(v.marker);
-        });
-        this.campusSelection = [];
-        
-        // ✅ REMOVED: clearCampusSnaps() - not needed
-        
+
+        // 🔹 REMOVE ONLY ROUTE
         if (this.campusRouteLayer) {
             this.map.removeLayer(this.campusRouteLayer);
             this.campusRouteLayer = null;
         }
-    } else {
-        this.userSelection.forEach(v => {
-            v.marker.setIcon(this.icons.default);
-        });
-        this.userSelection = [];
+
+        if (this.campusArrowLayer) {
+            this.map.removeLayer(this.campusArrowLayer);
+            this.campusArrowLayer = null;
+        }
+
+        this.currentTotalDistance = 0;
+
+        document.getElementById('results-area')?.classList.add('hidden');
+        document.getElementById('time-options')?.classList.add('hidden');
+        document.getElementById('time-stat')?.classList.add('hidden');
+        document.getElementById('estimate-time-row')?.classList.add('hidden');
+
+        this.showToast("Route cleared");
+        return;
     }
-    
-    document.getElementById('results-area')?.classList.add('hidden');
-    document.getElementById('time-options')?.classList.add('hidden');
-    document.getElementById('time-stat')?.classList.add('hidden');
-    document.getElementById('estimate-time-row')?.classList.add('hidden');
-    
+
+    // ===== GLOBAL MODE (unchanged) =====
+    this.userSelection.forEach(v => v.marker.setIcon(this.icons.default));
+    this.userSelection = [];
     this.clearRoute();
-    
     this.updateUI();
     this.showToast("Selection cleared");
 },
-
 
     // ================= ALGORITHMS =================
     solveTSPBruteForce(start, others) {
